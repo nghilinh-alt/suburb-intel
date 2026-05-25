@@ -120,3 +120,4 @@ def generate_tags(scores):
         tags.append("Government-Supported")
     
     return tags
+    

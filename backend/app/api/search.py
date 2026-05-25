@@ -219,5 +219,3 @@ async def get_top_suburbs(
         "by": by,
         "suburbs": top_suburbs[:limit]
     }
-
-

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Query, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.db.models import SA2Region, ABSCEntensMetrics
-from app.api.data_sources import OSMOverpassDataSource
+from app.api.data_sources.osm_overpass import OSMOverpassDataSource
 
 router = APIRouter(prefix="/{suburb_name}")
 
@@ -285,3 +285,5 @@ async def get_osm_lifestyle_score(suburb_name: str):
             status_code=503, 
             detail="Temporary service unavailable."
         )
+
+return router
