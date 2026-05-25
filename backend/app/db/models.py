@@ -1,5 +1,5 @@
-from sqlalchemy import Column, Text, Integer, Float, DateTime, JSON
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import Column, Text, Integer, Float, DateTime, JSON, ForeignKeyConstraint, ForeignKey
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
@@ -17,8 +17,8 @@ class SA2Region(Base):
 class ABSCEntensMetrics(Base):
     __tablename__ = "abs_census_metrics"
     
-    sa2_code = Column(Text, nullable=False)
-    year = Column(Integer, nullable=False)
+    sa2_code = Column(Text, ForeignKey("sa2_regions.sa2_code"), nullable=False, primary_key=True)
+    year = Column(Integer, nullable=False, primary_key=True)
     population = Column(Integer, nullable=True)
     median_income = Column(Integer, nullable=True)
     median_age = Column(Float, nullable=True)
@@ -42,8 +42,8 @@ class InfrastructureProject(Base):
 class SA2ProjectLink(Base):
     __tablename__ = "sa2_project_link"
     
-    sa2_code = Column(Text, nullable=False)
-    project_id = Column(Text, nullable=False)
+    sa2_code = Column(Text, ForeignKey("sa2_regions.sa2_code"), nullable=False, primary_key=True)
+    project_id = Column(Text, ForeignKey("infrastructure_projects.project_id"), nullable=False, primary_key=True)
     impact_score = Column(Float, nullable=True)
 
 

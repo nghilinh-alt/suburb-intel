@@ -1,10 +1,10 @@
 import asyncio
-from app.db.session import get_db, engine
-from app.db.models import SA2Region, ABSCEntensMetrics, InfrastructureProject, SA2ProjectLink
+from app.db.session import get_sync_session, init_db, sync_engine
+from sqlalchemy.exc import SQLAlchemyError
 
 
-async def seed_database():
-    """Seed the database with sample data"""
+def seed_database_sync():
+    """Seed the database with sample data (SQLite sync mode)"""
     
     sa2_data = [
         {"sa2_code": "30150", "sa2_name": "Altona Gardens VIC", "state": "VIC"},
@@ -112,35 +112,42 @@ async def seed_database():
         {"sa2_code": "22625", "project_id": "INFRA-004", "impact_score": 78.0},
     ]
     
-    async with get_db() as session:
+    try:
+        from app.db import models
+        
+        session = get_sync_session()
+        
         # Insert SA2 regions
         for sa2 in sa2_data:
-            region = SA2Region(**sa2)
+            region = models.SA2Region(**sa2)
             session.add(region)
         
         # Insert census metrics
         for census in census_data:
-            metric = ABSCEntensMetrics(**census)
+            metric = models.ABSCEntensMetrics(**census)
             session.add(metric)
         
         # Insert infrastructure projects
         for infra in infrastructure_data:
-            project = InfrastructureProject(**infra)
+            project = models.InfrastructureProject(**infra)
             session.add(project)
         
         # Insert links
         for link in link_data:
-            sa2_link = SA2ProjectLink(**link)
+            sa2_link = models.SA2ProjectLink(**link)
             session.add(sa2_link)
         
-        await session.commit()
-    
-    print("Database seeded successfully!")
-    print(f"Inserted {len(sa2_data)} SA2 regions")
-    print(f"Inserted {len(census_data)} census records")
-    print(f"Inserted {len(infrastructure_data)} infrastructure projects")
-    print(f"Inserted {len(link_data)} project links")
+        session.commit()
+        
+        print("Database seeded successfully!")
+        print(f"Inserted {len(sa2_data)} SA2 regions")
+        print(f"Inserted {len(census_data)} census records")
+        print(f"Inserted {len(infrastructure_data)} infrastructure projects")
+        print(f"Inserted {len(link_data)} project links")
+        
+    except SQLAlchemyError as e:
+        print(f"Database seeding encountered an error: {e}")
 
 
 if __name__ == "__main__":
-    asyncio.run(seed_database())
+    seed_database_sync()

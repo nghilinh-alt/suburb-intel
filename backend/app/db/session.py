@@ -1,10 +1,32 @@
+import os
 from sqlalchemy.ext.asyncio import create_async_engine, async_session, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
+from pydantic_settings import BaseSettings
+from pydantic import Field
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 
-DATABASE_URL = "postgresql+asyncpg://sa2:census@localhost:5432/suburb_intel"
+class DatabaseSettings(BaseSettings):
+    DATABASE_URL: str = Field(..., description="Database connection URL")
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+
+settings = DatabaseSettings()
+DATABASE_URL = settings.DATABASE_URL
+
+# Handle SQLite vs PostgreSQL
+is_sqlite = DATABASE_URL.startswith("sqlite://")
+
+if is_sqlite:
+    # Use SQLite sync engine for development
+    from sqlalchemy import create_engine
+    sync_engine = create_engine(DATABASE_URL)
+else:
+    # Use PostgreSQL async engine
+    from sqlalchemy.ext.asyncio import create_async_engine
+    engine = create_async_engine(DATABASE_URL, echo=False)
 
 
 class Base(DeclarativeBase):
@@ -12,67 +34,42 @@ class Base(DeclarativeBase):
 
 
 async def get_db() -> AsyncSession:
+    """Async session factory for PostgreSQL"""
+    if is_sqlite:
+        raise Exception("SQLite requires synchronous operations - use sync_get_db instead")
     async with async_session(engine) as session:
         yield session
 
 
-# Create tables on startup
-async def init_db():
-    from app.db import models
-    from sqlalchemy import text
+def sync_get_db():
+    """Sync session factory for SQLite"""
+    from sqlalchemy.orm import sessionmaker
+    LocalSession = sessionmaker(bind=sync_engine, autocommit=False, expire_on_commit=False)
     
-    async with engine.begin() as conn:
-        await conn.run_sync(text("DROP SCHEMA IF EXISTS public CASCADE"))
-        await conn.run_sync(text("CREATE SCHEMA public"))
-        await conn.execute(text("""
-            CREATE TABLE sa2_regions (
-                sa2_code TEXT PRIMARY KEY,
-                sa2_name TEXT,
-                state TEXT
-            )
-        """))
-        await conn.execute(text("""
-            CREATE TABLE abs_census_metrics (
-                sa2_code TEXT,
-                year INT,
-                population INT,
-                median_income INT,
-                median_age FLOAT,
-                renters_pct FLOAT,
-                owners_pct FLOAT,
-                industry_profile JSONB,
-                PRIMARY KEY (sa2_code, year)
-            )
-        """))
-        await conn.execute(text("""
-            CREATE TABLE infrastructure_projects (
-                project_id TEXT PRIMARY KEY,
-                name TEXT,
-                type TEXT,
-                value_aud BIGINT,
-                status TEXT,
-                lat FLOAT,
-                lon FLOAT
-            )
-        """))
-        await conn.execute(text("""
-            CREATE TABLE sa2_project_link (
-                sa2_code TEXT,
-                project_id TEXT,
-                impact_score FLOAT
-            )
-        """))
-        await conn.execute(text("""
-            CREATE TABLE suburb_scores (
-                sa2_code TEXT PRIMARY KEY,
-                investment_score FLOAT,
-                demographic_score FLOAT,
-                economic_score FLOAT,
-                housing_pressure_score FLOAT,
-                resilience_score FLOAT,
-                gov_investment_score FLOAT,
-                risk_flags JSONB,
-                updated_at TIMESTAMP
-            )
-        """))
-    print("Database initialized successfully")
+    def get_session():
+        return LocalSession()
+    
+    # Return the session factory to be called once per operation
+    return lambda: LocalSession()
+
+
+def get_sync_session():
+    """Get a new sync session for SQLite operations"""
+    from sqlalchemy.orm import sessionmaker, scoped_session
+    LocalSession = sessionmaker(bind=sync_engine, autocommit=False, expire_on_commit=False)
+    Session = scoped_session(LocalSession)
+    return Session()
+
+
+# Create tables on startup (only works with SQLite in sync mode)
+def init_db():
+    """Initialize database with sample data (SQLite only)"""
+    from app.db import models
+    
+    if not is_sqlite:
+        print("SQLite required for development initialization. Set DATABASE_URL to sqlite://...")
+        return
+    
+    Base.metadata.drop_all(bind=sync_engine)
+    Base.metadata.create_all(bind=sync_engine)
+    print("Database initialized successfully (SQLite)")
