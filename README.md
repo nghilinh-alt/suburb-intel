@@ -231,6 +231,40 @@ cd frontend && npm install && npm run dev
 
 ---
 
+## 🚀 LIVE DATA INTEGRATION TIMELINE (PHASED ROLLOUT)
+
+### ✅ Week 1: Foundation Complete
+- [x] ABS Census 2021 API integration (population, income, housing data)
+- [x] Education Capital Works endpoint
+- [x] Infrastructure Australia project pipeline scraper
+- [x] AIHW Hospital data integration
+
+### ⏳ Phase 2: OSM Amenities Integration (CURRENT WEEK!)
+- [ ] **OSM Overpass Amenities** (4-6 hours, Priority #1)
+  - Cafes, gyms, groceries, pharmacies, hospitals, parks, banks
+  - Amenity density scoring (0-10 scale)
+  - Lifestyle score calculation
+- [ ] Database table migration (osm_amenities)
+- [ ] Unit tests for OSM integration
+
+### ⏳ Phase 3: Crime & Transport (Next 2-3 Weeks)
+- [ ] Crime Data APIs (state-level aggregated statistics)
+- [ ] Transport APIs (train/bus routes, accessibility scores)
+- [ ] MySchool education quality data
+- [ ] OpenStats property prices
+
+### ⏳ Month 2: Strategic Differentiators
+- [ ] Development Approvals (Killer feature - requires council API access)
+- [ ] Climate risk overlays (NationalMap + Geoscience Australia)
+- [ ] Business vitality scoring (Overpass extended queries)
+
+---
+
+*See `api_expansion_strategy.md` for full phased rollout plan with all recommended free APIs.*
+
+
+---
+
 *Built entirely from free government data sources (ABS Census + Infrastructure Australia)*
 
 
@@ -272,3 +306,58 @@ See `README_LIVE_DATA.md` for full API documentation.
 - `backend/app/api/endpoints_docs.md` - Complete endpoint reference
 
 **All data from: Australian Bureau of Statistics (ABS), AIHW, Infrastructure Australia**
+
+---
+
+## 🗺️ OSM OpenStreetMap Amenities Integration (NEW!)
+
+Suburb Intel now integrates **OpenStreetMap Overpass API** for real-time amenity density scoring!
+
+### 🎯 What This Adds
+
+Instant lifestyle & livability intelligence by counting:
+- Cafes, gyms, restaurants, bars (vibrancy indicators)
+- Grocery stores, supermarkets, pharmacies (essential amenities)
+- Hospitals, clinics, doctors (healthcare access)
+- Parks, swimming pools, bike paths (recreation score)
+- Banks, ATMs (financial services)
+
+### 🔗 New API Endpoints
+
+```bash
+# Overall amenity density score (0-10 scale)
+curl "http://localhost:8000/search/South%20Yarra/osm-amenity-density"
+
+# Cafe density specifically  
+curl "http://localhost:8000/search/South%20Yarra/osm-cafe-density"
+
+# Full amenity overview
+curl "http://localhost:8000/search/South%20Yarra/osm-amenity-overview"
+
+# Healthcare facilities
+curl "http://localhost:8000/search/South%20Yarra/osm-healthcare"
+
+# Lifestyle score (cafes, gyms, parks, etc.)
+curl "http://localhost:8000/search/South%20Yarra/osm-lifestyle"
+```
+
+### Sample Response
+
+```json
+{
+  "suburb": "South Yarra VIC",
+  "density_score": 8.7,
+  "amenities_breakdown": {
+    "cafe": {"count_500m": 42, "count_1km": 87, "count_2km": 156},
+    "grocery": {"count_500m": 6, "count_1km": 12, "count_2km": 18},
+    "hospital": {"count_500m": 1, "count_1km": 2, "count_2km": 4}
+  },
+  "timestamp": "2026-05-25T10:30:00Z",
+  "data_source": "OpenStreetMap Overpass API"
+}
+```
+
+**Use Case:** Instant lifestyle score without waiting for census data. Visual maps show amenity-rich suburbs immediately! 🎉
+
+See `osm_overpass.py` and `osm_amenities.sql` for full implementation details.
+

@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Text, Integer, Float, DateTime, JSON, ForeignKeyConstraint, ForeignKey
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from datetime import datetime
 
 
 class Base(DeclarativeBase):
@@ -59,3 +60,28 @@ class SuburbScore(Base):
     gov_investment_score = Column(Float, nullable=True)
     risk_flags = Column(JSON, nullable=True)
     updated_at = Column(DateTime, nullable=True)
+
+
+class AmenityData(Base):
+    """Store OpenStreetMap Overpass API amenity counts for suburb intelligence."""
+    
+    __tablename__ = "osm_amenities"
+    
+    suburb_id = Column(Text, primary_key=True, comment="Suburb identifier (name or code)")
+    amenity_type = Column(Text, nullable=False, comment="Type of amenity: cafe, gym, hospital, etc.")
+    
+    count_500m = Column(Integer, nullable=False, default=0, comment="Count within 500m radius")
+    count_1km = Column(Integer, nullable=False, default=0, comment="Count within 1km radius")
+    count_2km = Column(Integer, nullable=False, default=0, comment="Count within 2km radius")
+    
+    amenity_density_score = Column(
+        Float, 
+        nullable=True, 
+        comment="Normalized score from amenity counts"
+    )
+    
+    overpass_response = Column(JSON, nullable=True, comment="Full Overpass API response JSON")
+    
+    last_fetched = Column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    data_source = Column(Text, nullable=False, default="overpass_api")
+    fetched_by = Column(Text, nullable=True)
