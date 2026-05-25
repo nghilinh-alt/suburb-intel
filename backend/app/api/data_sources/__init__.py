@@ -1,6 +1,6 @@
-"""
-Package for data sources in suburb intelligence API.
-"""
+"""Data-source package — external API clients."""
 
-# No exports here to avoid circular imports
-# Modules should import directly from their source files
+from app.api.data_sources.abs import AustralianDataSources
+from app.api.data_sources.osm_overpass import OSMOverpassDataSource
+
+__all__ = ["AustralianDataSources", "OSMOverpassDataSource"]

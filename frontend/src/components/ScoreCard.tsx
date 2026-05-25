@@ -1,5 +1,3 @@
-import React from 'react'
-
 interface ScoreCardProps {
   label: string
   value: string
