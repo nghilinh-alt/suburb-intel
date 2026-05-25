@@ -10,8 +10,6 @@ Body:
 [out:json][timeout:60];
 (
   node["amenity"="cafe"](around:1000,"{query_string}");
-  way["amenity"="cafe"](around:1000,"{query_string}");
-  relation["amenity"="cafe"](around:1000,"{query_string}");
 );
 out count;
 
@@ -24,8 +22,8 @@ Last Updated: 2026-05-25
 import requests
 from typing import Dict, Any, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.models.database import db
 from datetime import datetime
+import json
 
 
 class OSMOverpassDataSource:
@@ -46,52 +44,44 @@ class OSMOverpassDataSource:
     
     # Supported amenity types mapped to OSM tags
     AMENITY_TAGS = {
-        "cafe": "amenity=cafe",  # Coffee shops, cafe-style venues
-        "restaurant": "amenity=restaurant",  # Full service restaurants
-        "fast_food": "amenity=fast_food",  # Fast food outlets
-        "bar": "amenity=bar",  # Pubs, bars
-        "pub": "amenity=pub",  # Traditional pubs (if tagged)
-        "hospital": "amenity=hospital",  # Hospitals
-        "clinic": "amenity=clinic",  # Medical clinics
-        "doctors": "amenity=doctors",  # Doctor offices
-        "dentist": "amenity=dentist",  # Dental practices
-        "pharmacy": "amenity=pharmacy",  # Pharmacies
-        "grocery": "shop=supermarket",  # Grocery stores/supermarkets
+        "cafe": "amenity=cafe",
+        "restaurant": "amenity=restaurant",
+        "fast_food": "amenity=fast_food",
+        "bar": "amenity=bar",
+        "pub": "amenity=pub",
+        "hospital": "amenity=hospital",
+        "clinic": "amenity=clinic",
+        "doctors": "amenity=doctors",
+        "dentist": "amenity=dentist",
+        "pharmacy": "amenity=pharmacy",
+        "grocery": "shop=supermarket",
         "supermarket": "shop=supermarket",
-        "convenience_store": "shop=convenience",
-        "shopping_centre": "shop=mall",
-        "bank": "amenity=bank",  # Banks/ATMs
-        "atm": "amenity=atm",
-        "school": "amenity=school",  # Schools (requires careful mapping)
-        "kindergarten": "amenity=kindergarten",  # Kindergartens
-        "childcare": "amenity=childcare",
-        "child_mindcare": "amenity=child_mindcare",
-        "library": "amenity=library",  # Libraries
-        "post_office": "amenity=post_office",
         "bank": "amenity=bank",
-        "fitness_centre": "leisure=fitness_centre",  # Gyms/fitness centres
+        "school": "amenity=school",
+        "kindergarten": "amenity=kindergarten",
+        "childcare": "amenity=childcare",
+        "library": "amenity=library",
+        "post_office": "amenity=post_office",
+        "fitness_centre": "leisure=fitness_centre",
         "gym": "leisure=fitness_centre",
-        "swimming_pool": "leisure=pool",  # Swimming pools
-        "sports_centre": "leisure=sports_centre",
-        "park": "landuse=recreation_ground",  # Parks
-        "community_centre": "amenity=community_centre",
+        "swimming_pool": "leisure=pool",
+        "park": "landuse=recreation_ground",
     }
     
     # Amenity density scoring weights (for lifestyle score calculation)
     AMENITY_WEIGHTS = {
-        "cafe": 8.0,  # High lifestyle indicator
+        "cafe": 8.0,
         "restaurant": 7.5,
         "bar": 6.0,
         "pub": 6.0,
         "fast_food": 3.0,
-        "grocery": 9.0,  # Essential amenity
+        "grocery": 9.0,
         "supermarket": 9.0,
         "pharmacy": 8.5,
         "bank": 7.0,
-        "hospital": 9.5,  # Critical healthcare access
+        "hospital": 9.5,
         "clinic": 8.0,
         "doctors": 8.0,
-        "dental": 6.0,
         "swimming_pool": 7.0,
         "gym": 6.5,
         "park": 7.5,
@@ -99,265 +89,86 @@ class OSMOverpassDataSource:
     
     def __init__(self):
         self.session = requests.Session()
-        self.timeout = 30  # seconds
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (compatible; SuburbIntel/1.0)',
+            'Accept-Encoding': 'gzip',
+            'Connection': 'keep-alive',
+        })
     
-    async def fetch_suburb_coordinates(self, suburb_name: str) -> Dict[str, Any]:
+    def get_amenity_query_string(self, amenity_type: str) -> str:
+        """Construct Overpass query string for amenity type."""
+        # Build query with multiple radii in one request
+        nodes = f'node["{self.AMENITY_TAGS.get(amenity_type, amenity_type)}"](around:500,"{amenity_type}");'
+        ways = f'way["{self.AMENITY_TAGS.get(amenity_type, amenity_type)}"](around:1000,"{amenity_type}");'
+        relations = f'relation["{self.AMENITY_TAGS.get(amenity_type, amenity_type)}"](around:2000,"{amenity_type}");'
+        return f'[{nodes}{ways}{relations}]; out count;'
+    
+    async def fetch_amenity_counts(self, suburb_name: str, amenity_type: str) -> Dict[str, Any]:
         """
-        Fetch suburb centrepoint coordinates from Geocoder or OSM search.
+        Fetch amenity counts for a specific type within 500m, 1km, and 2km.
         
         Args:
-            suburb_name: Suburb name (e.g., "South Yarra")
-            
-        Returns:
-            Dict with latitude, longitude, and confidence score
-            
-        Raises:
-            ValueError: If suburb not found
-        """
-        # First try simple Geonames lookup for suburb + state
-        geonames_url = f"https://geonames.org/find?q={suburb_name}&country=AU"
+            suburb_name: Name of suburb (used as query string in Overpass API)
+            amenity_type: Type of amenity to fetch (e.g., "cafe", "grocery")
         
+        Returns:
+            Dict with count_500m, count_1km, count_2km or error message
+        
+        Example:
+            >>> osm_source = OSMOverpassDataSource()
+            >>> result = await osm_source.fetch_amenity_counts("South Yarra", "cafe")
+            >>> print(result["count_500m"])  # e.g., 42
+        """
         try:
-            response = requests.get(geonames_url, timeout=self.timeout)
-            if response.status_code == 200:
-                data = response.json()
-                results = data.get("results", [])
+            query_string = self.get_amenity_query_string(amenity_type)
+            
+            # Encode suburb name for Overpass API URL parameter
+            encoded_suburb = urllib.parse.quote(suburb_name)
+            
+            url = f"{self.BASE_URL}?{query_string}"
+            params = {
+                'data': f'"[{urllib.parse.quote(suburb_name)}]";',
+                'timeout': 60
+            }
+            
+            response = self.session.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Parse Overpass output - should be in format like: {"count_500m": "42", "count_1km": "87", ...}
+            if isinstance(data, dict):
+                counts = {
+                    "count_500m": int(data.get("count_500m", 0) or 0),
+                    "count_1km": int(data.get("count_1km", 0) or 0), 
+                    "count_2km": int(data.get("count_2km", 0) or 0)
+                }
                 
-                if len(results) > 0:
-                    location = results[0]
-                    return {
-                        "latitude": location["lat"],
-                        "longitude": location["lon"],
-                        "display_name": location.get("display_name", ""),
-                        "confidence": "high"
-                    }
-        except Exception as e:
-            print(f"Geonames lookup failed for {suburb_name}: {e}")
-        
-        # Fallback: Return placeholder coordinates (use state capital approximate)
-        # This will be improved with better geocoding later
-        lat_lon_map = {
-            "Melbourne": (-37.8136, 144.9631),
-            "Sydney": (-33.8688, 151.2093),
-            "Brisbane": (-27.4697, 153.0251),
-            "Perth": (-31.9505, 115.8605),
-            "Adelaide": (-34.9285, 138.6007),
-            "Darwin": (-12.4634, 130.8456),
-            "Hobart": (-42.8821, 147.3272),
-        }
-        
-        # Extract state from suburb name (e.g., "South Yarra VIC" -> VIC)
-        import re
-        match = re.search(r'\b(ME|SYD|BNE|PER|ADL|DRW|HBA)\b', suburb_name.upper())
-        
-        if not match:
-            # Default to Melbourne as fallback
+                return counts
+            
+            # Fallback: try to parse different Overpass response formats
+            if isinstance(data, list):
+                # Empty result
+                return {
+                    "count_500m": 0,
+                    "count_1km": 0,
+                    "count_2km": 0
+                }
+            
+            # Return raw data with error flag
+            return {"error": f"Unexpected response format: {type(data)}"}
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Request error fetching {amenity_type} for {suburb_name}: {e}")
             return {
-                "latitude": -37.8136,
-                "longitude": 144.9631,
-                "display_name": f"{suburb_name} (Default Location)",
-                "confidence": "low"
-            }
-        
-        # Use appropriate state capital coordinates
-        lat_lon_map[state_code] = None
-        
-        return {
-            "latitude": -37.8136,
-            "longitude": 144.9631,
-            "display_name": f"{suburb_name} (Approximate Location)",
-            "confidence": "low"
-        }
-    
-    def build_overpass_query(self, query_string: str, amenity_tag: str) -> str:
-        """
-        Build Overpass API query for specific amenity type.
-        
-        Args:
-            query_string: Suburb name (e.g., "South Yarra VIC")
-            amenity_tag: OSM amenity tag string (e.g., "amenity=cafe")
-            
-        Returns:
-            Overpass QL query string
-        """
-        # Escape single quotes in query string
-        escaped_suburb = query_string.replace("'", "\\'").replace('\"', '\\"')
-        
-        # Query structure with configurable radius
-        return f"""
-[out:json][timeout:60];
-(
-  // Node amenities (shops, cafes, banks, etc.)
-  node["{amenity_tag}"](around:2000,"{escaped_suburb}");
-  
-  // Way amenities (restaurants, larger venues)
-  way["{amenity_tag}"](around:2000,"{escaped_suburb}");
-  
-  // Relation amenities (shopping centres, malls)
-  relation["{amenity_tag}"](around:2000,"{escaped_suburb}");
-);
-out count;"""
-    
-    async def fetch_amenity_counts(self, query_string: str, amenity_type: str = "cafe") -> Dict[str, Any]:
-        """
-        Fetch amenity counts from Overpass API.
-        
-        Args:
-            query_string: Suburb name/area to search
-            amenity_type: Amenity type (e.g., "cafe", "gym", "hospital")
-            
-        Returns:
-            Dict with count breakdown by radius
-            
-        Raises:
-            ValueError: If Overpass API returns error
-        """
-        # Build and execute query
-        query = self.build_overpass_query(query_string, self.AMENITY_TAGS.get(amenity_type, amenity_type))
-        
-        try:
-            response = requests.post(self.BASE_URL, data=query, timeout=self.timeout)
-            
-            if response.status_code != 200:
-                raise ValueError(f"Overpass API error: {response.status_code} - {response.text}")
-            
-            result = response.json()
-            
-            # Parse Overpass response format
-            elements = result.get("elements", [])
-            
-            return {
-                "amenity": amenity_type,
-                "count_500m": len([e for e in elements if e.get("@radius", 0) <= 500]),
-                "count_1km": len([e for e in elements if e.get("@radius", 0) <= 1000]),
-                "count_2km": len([e for e in elements if e.get("@radius", 0) <= 2000]),
-                "total_elements": len(elements),
-                "last_updated": datetime.utcnow().isoformat()
-            }
-            
-        except requests.RequestException as e:
-            print(f"Overpass API request failed for {amenity_type}: {e}")
-            return {
-                "amenity": amenity_type,
                 "count_500m": 0,
                 "count_1km": 0,
                 "count_2km": 0,
-                "total_elements": 0,
-                "error": str(e),
-                "last_updated": datetime.utcnow().isoformat()
+                "error": str(e)
             }
-    
-    async def fetch_all_amenity_types(self, query_string: str) -> Dict[str, Any]:
-        """
-        Fetch counts for all supported amenity types.
-        
-        Args:
-            query_string: Suburb name to search
-            
-        Returns:
-            Dict mapping amenity_type to count breakdown
-        """
-        amenity_counts = {}
-        
-        # List of amenity types to fetch (prioritize high-value ones first)
-        priority_amenities = [
-            "cafe", "grocery", "supermarket", "pharmacy", 
-            "hospital", "clinic", "bank", "gym", "swimming_pool",
-            "park", "bar", "restaurant"
-        ]
-        
-        for amenity in priority_amenities:
-            try:
-                counts = await self.fetch_amenity_counts(query_string, amenity)
-                amenity_counts[amenity] = counts
-            except Exception as e:
-                print(f"Error fetching {amenity}: {e}")
-                continue
-        
-        return {
-            "query": query_string,
-            "amenities": amenity_counts,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-    
-    async def calculate_amenity_density_score(self, suburb: str) -> float:
-        """
-        Calculate overall amenity density score for a suburb (0-10 scale).
-        
-        Args:
-            suburb: Suburb name
-            
-        Returns:
-            Float score between 0 and 10
-        """
-        # Fetch all amenity types
-        data = await self.fetch_all_amenity_types(suburb)
-        
-        amenities = data.get("amenities", {})
-        total_score = 0.0
-        
-        # Weighted scoring based on amenity type importance and density
-        for amenity_type, counts in amenities.items():
-            # Get weight for this amenity type (or use default of 5)
-            weight = self.AMENITY_WEIGHTS.get(amenity_type, 5.0)
-            
-            # Normalize count to 0-1 scale (based on typical suburb values)
-            max_expected = {
-                "cafe": 50, "grocery": 15, "supermarket": 8, "pharmacy": 6,
-                "hospital": 2, "gym": 8, "park": 15, "bank": 6,
-                "swimming_pool": 4, "restaurant": 30, "bar": 20, "clinic": 4
-            }.get(amenity_type, 20)
-            
-            normalized_count = min(counts["count_500m"] / max_expected, 1.0)
-            total_score += weight * normalized_count
-        
-        # Normalize to 0-10 scale
-        raw_score = min(total_score, 25)  # Cap at reasonable max
-        final_score = (raw_score / 25) * 10
-        
-        return round(final_score, 2)
-    
-    async def store_amenity_data(self, db_session: AsyncSession, 
-                                 suburb_id: str, 
-                                 data: Dict[str, Any]):
-        """
-        Store amenity counts in database.
-        
-        Args:
-            db_session: SQLAlchemy async session
-            suburb_id: Suburb ID (or name)
-            data: Amenity count data from Overpass API
-        """
-        # Query for existing record or create new
-        amenities_record = await db.query(AmenityData).filter(
-            AmenityData.suburb == suburb_id
-        ).first()
-        
-        if not amenities_record:
-            amenities_record = AmenityData(suburb=suburb_id)
-            
-            db.add(amenities_record)
-            data["suburb_id"] = suburb_id
-            
-            # Store all amenity counts as a JSON field for flexibility
-            amenities_json = json.dumps(data.get("amenities", {}))
-            amenities_record.amenities_json = amenities_json
-        
-        # Update last_updated timestamp
-        amenities_record.last_updated = datetime.utcnow()
-        
-        db.commit()
+        except Exception as e:
+            print(f"Unexpected error fetching {amenity_type} for {suburb_name}: {e}")
+            return {"error": str(e)}
 
 
-async def run_amenity_fetcher():
-    """Background task to periodically fetch amenity data for all suburbs."""
-    from backend.models.database import ammenty_data
-    
-    osm_source = OSMOverpassDataSource()
-    
-    # Example: Fetch for a specific suburb
-    suburb_name = "South Yarra VIC"  # or any suburb with state code
-    
-    print(f"Fetching amenity data for {suburb_name}...")
-    data = await osm_source.fetch_all_amenity_types(suburb_name)
-    print(json.dumps(data, indent=2))
+import urllib.parse

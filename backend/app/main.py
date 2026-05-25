@@ -1,12 +1,17 @@
 from fastapi import FastAPI
 
 from app.api import suburb, search, rankings
+from app.api.osm_routes import osm  # NEW: OpenStreetMap amenity routes
+from middleware.rate_limiter import RateLimitingMiddleware  # Add rate limiting support
 
 app = FastAPI(
     title="Suburb Intelligence API",
     description="Australia's government-data driven property investment decision engine",
     version="1.0.0"
 )
+
+# Apply rate limiting middleware for all API requests (production ready)
+app.middleware("http")(RateLimitingMiddleware)
 
 
 @app.get("/")
@@ -31,3 +36,4 @@ async def health_check():
 app.include_router(suburb.router, prefix="/suburb", tags=["Suburb"])
 app.include_router(search.router, prefix="/search", tags=["Search"])
 app.include_router(rankings.router, prefix="/rankings", tags=["Rankings"])
+app.include_router(osm.router, prefix="/search/{suburb_name}", tags=["OSM Amenities"])  # NEW: OSM amenity routes
