@@ -1,5 +1,3 @@
-import React from 'react'
-
 interface BreakdownProps {
   scores: {
     demographic_score?: number
