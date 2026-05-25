@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+:root {
+  --bg-base: #282c34;
+  --bg-surface: #343b47;
+  --bg-accent: #4b566a;
+  --fg-primary: #f8f8f2;
+  --fg-secondary: #d1d5da;
+  --fg-muted: #9ca0aa;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--fg-primary);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.score-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--bg-accent);
+  border-radius: 8px;
+  padding: 24px;
+}
