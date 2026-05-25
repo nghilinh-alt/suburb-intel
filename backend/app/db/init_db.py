@@ -1,6 +1,9 @@
 import asyncio
 from app.db.session import get_sync_session, init_db, sync_engine
 from sqlalchemy.exc import SQLAlchemyError
+import requests
+import pandas as pd
+from bs4 import BeautifulSoup
 
 
 def seed_database_sync():

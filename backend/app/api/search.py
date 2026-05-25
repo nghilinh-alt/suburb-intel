@@ -2,6 +2,7 @@ from fastapi import APIRouter, Query, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.db.models import SA2Region, ABSCEntensMetrics
+from app.api.data_sources import AustralianDataSources
 
 router = APIRouter()
 
@@ -43,6 +44,68 @@ async def search_suburbs(
             )
         
         return results
+    
+    # ==========================================
+    # NEW: Real-Time ABS Data Endpoints
+    # ==========================================
+    
+    # Population by age from ABS Census 2021
+    @router.get("/{suburb_name}/population-by-age")
+    async def get_population_by_age(suburb_name: str):
+        """Get population distribution by age group (ABS Census 2021)."""
+        # Find SA3 code for this suburb
+        results = await get_suburbs_by_name(suburb_name, limit=1)
+        if not results:
+            raise HTTPException(status_code=404, detail=f"Suburb '{suburb_name}' not found")
+        
+        sa2_code = results[0].sa2_code
+        
+        # Call ABS API
+        api = AustralianDataSources()
+        result = api.get_population_by_age(sa2_code)
+        
+        if not result["success"]:
+            raise HTTPException(status_code=502, detail=f"ABS API error: {result['error']}")
+        
+        return {"suburb": suburb_name, "data": result["data"]}
+    
+    # Household income from ABS Census 2021
+    @router.get("/{suburb_name}/income")
+    async def get_income(suburb_name: str):
+        """Get median household income (ABS Census 2021)."""
+        results = await get_suburbs_by_name(suburb_name, limit=1)
+        if not results:
+            raise HTTPException(status_code=404, detail=f"Suburb '{suburb_name}' not found")
+        
+        sa2_code = results[0].sa2_code
+        
+        # Call ABS API
+        api = AustralianDataSources()
+        result = api.get_household_income(sa2_code)
+        
+        if not result["success"]:
+            raise HTTPException(status_code=502, detail=f"ABS API error: {result['error']}")
+        
+        return {"suburb": suburb_name, "data": result["data"]}
+    
+    # Housing tenure split (owned vs rented) from ABS Census 2021
+    @router.get("/{suburb_name}/housing-tenure")
+    async def get_housing_tenure(suburb_name: str):
+        """Get housing tenure distribution (ABS Census 2021)."""
+        results = await get_suburbs_by_name(suburb_name, limit=1)
+        if not results:
+            raise HTTPException(status_code=404, detail=f"Suburb '{suburb_name}' not found")
+        
+        sa2_code = results[0].sa2_code
+        
+        # Call ABS API
+        api = AustralianDataSources()
+        result = api.get_housing_tenure(sa2_code)
+        
+        if not result["success"]:
+            raise HTTPException(status_code=502, detail=f"ABS API error: {result['error']}")
+        
+        return {"suburb": suburb_name, "data": result["data"]}
 
 
 async def get_exact_sa2(sa2_code: str, db: AsyncSession) -> dict:
