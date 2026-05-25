@@ -46,7 +46,7 @@ async def search_suburbs(
         return results
     
     # ==========================================
-    # NEW: Real-Time ABS Data Endpoints
+    # NEW: Real-Time ABS Data Endpoints (under /search)
     # ==========================================
     
     # Population by age from ABS Census 2021

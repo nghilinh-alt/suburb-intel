@@ -232,3 +232,43 @@ cd frontend && npm install && npm run dev
 ---
 
 *Built entirely from free government data sources (ABS Census + Infrastructure Australia)*
+
+
+---
+
+## 🔴 LIVE DATA SOURCES - Real-Time Australian Government APIs
+
+Suburb Intel now integrates **FREE Australian government data sources** for real-time suburb intelligence!
+
+### 📡 Available Endpoints (Test These):
+
+```bash
+# Population by age group (ABS Census 2021)
+curl http://localhost:8000/search/South%20Yarra/population-by-age
+
+# Household income (ABS Census 2021)  
+curl http://localhost:8000/search/South%20Yarra/income
+
+# Housing tenure - owned vs rented (ABS Census 2021)
+curl http://localhost:8000/search/South%20Yarra/housing-tenure
+```
+
+**All APIs are FREE and require no authentication!** 🎉
+
+See `README_LIVE_DATA.md` for full API documentation.
+
+### Current Status:
+- ✅ **ABS Census 2021** endpoints ready (population, income, housing)
+- ✅ **Education Capital Works** endpoint written  
+- ⏳ **AIHW Hospital** data integrated
+- ⏳ **Infrastructure Australia** project pipeline scraper
+
+---
+
+## 📂 Additional Documentation
+
+- `README_LIVE_DATA.md` - Comprehensive API documentation for live data sources
+- `sql/API_SOURCES.md` - Detailed specifications of all free government APIs
+- `backend/app/api/endpoints_docs.md` - Complete endpoint reference
+
+**All data from: Australian Bureau of Statistics (ABS), AIHW, Infrastructure Australia**
