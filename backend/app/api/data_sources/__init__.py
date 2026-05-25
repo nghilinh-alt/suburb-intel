@@ -1,12 +1,6 @@
 """
-Data sources for suburb intelligence API.
-
-Exports available data source classes:
-- AustralianDataSources: Free Australian government APIs (ABS Census, AIHW)
-- OSMOverpassDataSource: OpenStreetMap amenity density data (import directly from osm_overpass.py)
+Package for data sources in suburb intelligence API.
 """
 
-from app.api.data_sources import AustralianDataSources  # ABS Census & other gov APIs
-
-__all__ = ["AustralianDataSources"]
-
+# No exports here to avoid circular imports
+# Modules should import directly from their source files
