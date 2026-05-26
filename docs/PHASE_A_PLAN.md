@@ -26,14 +26,39 @@ For Phase A we are not using the API at all — we are using bulk **DataPacks**.
    - Each CSV has one row per SA2 code and columns named with cryptic codes like `Tot_P_M`, `Median_age_persons`, etc.
 4. The full metadata mapping is in the `Metadata` folder of the same DataPack — open `Metadata_2021_GCP_DataPack.xlsx` to map column codes to human descriptions.
 
-Confirm you can:
-- Read `G01` (selected medians) and find the columns we need (population, median age, median income, dwelling/tenure breakdown).
-- Read `G17a/b/c` (income by age/sex) for the household income column.
-- Read `G33` (dwelling structure) for renter/owner percentages.
-- Read `G09a/b/c` (country of birth) — not needed yet but useful later.
-- Read `G44a-d` (industry of employment) for ANZSIC code aggregation.
+**Pre-flight completed 2026-05-26. Confirmed columns below (corrections from original plan noted).**
 
-If the column codes don't match what's described above, **stop and update this plan** before writing the loader.
+| Metric | Table | Key columns |
+|--------|-------|-------------|
+| Total population | G01 | `Tot_P_P` |
+| Age bands (young pct) | G01 | `Age_15_19_yr_P`, `Age_20_24_yr_P`, `Age_25_34_yr_P` |
+| Median age | **G02** (not G01) | `Median_age_persons` |
+| Median personal income (weekly) | **G02** (not G17) | `Median_tot_prsnl_inc_weekly` |
+| Median household income (weekly) | G02 | `Median_tot_hhd_inc_weekly` |
+| Tenure (owners/renters) | **G37** (not G33) | `O_OR_Total`, `O_MTG_Total`, `R_Tot_Total`, `Total_Total` |
+| Industry of employment | **G53B + G53C** (not G44) | `P_*_ToT` columns — see mapping below |
+| SA2 name + area | Metadata Excel | `2021Census_geog_desc_1st_2nd_3rd_release.xlsx`, filter `ASGS_Structure=='SA2'` |
+
+G33 is actually household income by family type; G44 is migration (1-year). G37 has tenure × dwelling structure breakdown. G53A/B/C are industry × qualification split across male/female/persons.
+
+**Industry column mapping (G53B for first 15 industries, G53C for last 4):**
+
+| DataPack column | Scoring bucket |
+|-----------------|----------------|
+| `P_AgriForestFish_ToT` (G53B) | `agriculture` |
+| `P_Mnfg_ToT` (G53B) | `manufacturing` |
+| `P_Cnstn_ToT` (G53B) | `construction` |
+| `P_WTrade_ToT` + `P_RTrade_ToT` + `P_AccomFoodS_ToT` (G53B) | `retail` |
+| `P_InfoMedTelecom_ToT` + `P_ProScieTechServ_ToT` (G53B) | `tech` |
+| `P_FinInsurS_ToT` (G53B) | `finance` |
+| `P_EducTrain_ToT` (G53C) | `education` |
+| `P_HealthCareSocA_ToT` (G53C) | `healthcare` |
+| everything else | `services` |
+| `P_ToT_ToT` (G53C) | denominator |
+
+**Geography hierarchy:** SA3 = first 5 digits of SA2 code; SA4 = first 3 digits; State = first digit (1=NSW, 2=VIC, 3=QLD, 4=SA, 5=WA, 6=TAS, 7=NT, 8=ACT). GCCSA not present in this DataPack — leave `gcc_code`/`gcc_name` NULL for Phase A.
+
+**Victoria DataPack** downloaded at `data/2021_GCP_SA2_for_VIC_short-header.zip`. Full AUS DataPack URL (41 MB): `https://www.abs.gov.au/census/find-census-data/datapacks/download/2021_GCP_SA2_for_AUS_short-header.zip`
 
 ### 0.2 Confirm Postgres is available locally
 
