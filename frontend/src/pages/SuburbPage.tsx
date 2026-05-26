@@ -1,15 +1,52 @@
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+
+interface SuburbScores {
+  investment_score: number
+  demographic_score: number
+  economic_score: number
+  housing_pressure_score: number
+  resilience_score: number
+  gov_investment_score: number
+}
+
+interface SuburbReport {
+  sa2_code: string
+  sa2_name: string | null
+  state: string | null
+  scores: SuburbScores
+  insight: string
+  risk_flags: string[]
+  tags: string[]
+  census_year: number
+  population: number | null
+  median_income: number | null
+  median_age: number | null
+}
+
+type FetchState =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; data: SuburbReport }
 
 interface ScoreCardProps {
   label: string
-  value: string
+  value: number | string
   description: string
 }
 
 function ScoreCard({ label, value, description }: ScoreCardProps) {
   return (
     <div style={{ backgroundColor: '#343b47', borderRadius: '12px', padding: '24px' }}>
-      <h4 style={{ fontSize: '14px', color: '#9ca0aa', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px' }}>
+      <h4
+        style={{
+          fontSize: '14px',
+          color: '#9ca0aa',
+          textTransform: 'uppercase',
+          letterSpacing: '1px',
+          marginBottom: '8px',
+        }}
+      >
         {label}
       </h4>
       <div style={{ fontSize: '56px', fontWeight: 'bold', color: '#f8f8f2' }}>{value}</div>
@@ -18,10 +55,46 @@ function ScoreCard({ label, value, description }: ScoreCardProps) {
   )
 }
 
+function fmtScore(n: number | undefined): string {
+  if (n === undefined || n === null || Number.isNaN(n)) return '—'
+  return Math.round(n).toString()
+}
+
 export default function SuburbPage() {
-  // React Router supplies route params via useParams, not via a `params` prop.
   const { id: sa2Code = '' } = useParams<{ id: string }>()
-  const suburbName = 'Chermside QLD' // TODO: fetch from /suburb/{sa2Code}
+  const [state, setState] = useState<FetchState>({ status: 'loading' })
+
+  useEffect(() => {
+    if (!sa2Code) {
+      setState({ status: 'error', message: 'Missing SA2 code in URL.' })
+      return
+    }
+
+    let cancelled = false
+    setState({ status: 'loading' })
+
+    fetch(`/api/suburb/${encodeURIComponent(sa2Code)}`)
+      .then(async (response) => {
+        if (!response.ok) {
+          const body = await response.json().catch(() => null)
+          const detail = body && typeof body.detail === 'string' ? body.detail : response.statusText
+          throw new Error(`${response.status}: ${detail}`)
+        }
+        return (await response.json()) as SuburbReport
+      })
+      .then((data) => {
+        if (!cancelled) setState({ status: 'ready', data })
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        const message = err instanceof Error ? err.message : 'Unknown error fetching suburb.'
+        setState({ status: 'error', message })
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [sa2Code])
 
   return (
     <div style={{ padding: '40px' }}>
@@ -39,15 +112,45 @@ export default function SuburbPage() {
             textDecoration: 'none',
           }}
         >
-          ← Back to Search
+          Back to Search
         </Link>
       </div>
 
-      <h1 style={{ fontSize: '48px', marginBottom: '20px' }}>{suburbName}</h1>
+      {state.status === 'loading' && (
+        <p style={{ color: '#9ca0aa', fontSize: '18px' }}>Loading suburb {sa2Code}...</p>
+      )}
 
-      <p style={{ color: '#9ca0aa', fontSize: '18px', marginBottom: '60px' }}>
-        SA2 Code: {sa2Code}
-      </p>
+      {state.status === 'error' && (
+        <div
+          style={{
+            backgroundColor: '#3b2a2a',
+            border: '1px solid #6b3b3b',
+            borderRadius: '12px',
+            padding: '20px',
+            color: '#f8d7da',
+          }}
+        >
+          <h2 style={{ marginTop: 0 }}>Could not load suburb {sa2Code}</h2>
+          <p style={{ marginBottom: 0 }}>{state.message}</p>
+        </div>
+      )}
+
+      {state.status === 'ready' && <ReadyView data={state.data} />}
+    </div>
+  )
+}
+
+function ReadyView({ data }: { data: SuburbReport }) {
+  const { sa2_code, sa2_name, state, scores, insight, risk_flags, tags } = data
+
+  return (
+    <>
+      <h1 style={{ fontSize: '48px', marginBottom: '20px' }}>
+        {sa2_name ?? `Suburb ${sa2_code}`}
+        {state ? <span style={{ color: '#9ca0aa', fontSize: '24px', marginLeft: '12px' }}>{state}</span> : null}
+      </h1>
+
+      <p style={{ color: '#9ca0aa', fontSize: '18px', marginBottom: '60px' }}>SA2 Code: {sa2_code}</p>
 
       <div
         style={{
@@ -57,42 +160,86 @@ export default function SuburbPage() {
           marginBottom: '60px',
         }}
       >
-        <ScoreCard label="Investment Score" value="78" description="Overall investment potential (0-100)" />
-        <ScoreCard label="Demographics" value="82" description="Population growth & young population" />
-        <ScoreCard label="Economy" value="74" description="Income levels & employment diversity" />
-        <ScoreCard label="Housing" value="69" description="Rental pressure analysis" />
-        <ScoreCard label="Resilience" value="71" description="Industry diversification" />
-        <ScoreCard label="Gov Investment" value="85" description="Government projects pipeline" />
+        <ScoreCard
+          label="Investment Score"
+          value={fmtScore(scores.investment_score)}
+          description="Overall investment potential (0-100)"
+        />
+        <ScoreCard
+          label="Demographics"
+          value={fmtScore(scores.demographic_score)}
+          description="Population growth & young population"
+        />
+        <ScoreCard
+          label="Economy"
+          value={fmtScore(scores.economic_score)}
+          description="Income levels & employment diversity"
+        />
+        <ScoreCard
+          label="Housing"
+          value={fmtScore(scores.housing_pressure_score)}
+          description="Rental pressure analysis"
+        />
+        <ScoreCard
+          label="Resilience"
+          value={fmtScore(scores.resilience_score)}
+          description="Industry diversification"
+        />
+        <ScoreCard
+          label="Gov Investment"
+          value={fmtScore(scores.gov_investment_score)}
+          description="Government projects pipeline"
+        />
       </div>
 
-      <div style={{ backgroundColor: '#343b47', borderRadius: '12px', padding: '32px', marginBottom: '60px' }}>
+      <div
+        style={{
+          backgroundColor: '#343b47',
+          borderRadius: '12px',
+          padding: '32px',
+          marginBottom: '60px',
+        }}
+      >
         <h2 style={{ fontSize: '28px', marginBottom: '16px' }}>Key Insight</h2>
-        <p style={{ fontSize: '20px', color: '#d1d5da', lineHeight: '1.6' }}>
-          Strong early growth suburb driven by infrastructure and demographic momentum.
-          Government investment uplift indicates promising future trajectory.
-        </p>
+        <p style={{ fontSize: '20px', color: '#d1d5da', lineHeight: 1.6 }}>{insight}</p>
       </div>
 
-      <h3 style={{ fontSize: '24px', marginBottom: '20px' }}>Risk Flags</h3>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', marginBottom: '40px' }}>
-        {['Moderate retail dependency', 'Rising rental pressure volatility'].map((flag) => (
-          <span key={flag} style={{ backgroundColor: '#4b566a', padding: '10px 16px', borderRadius: '6px' }}>
-            {flag}
-          </span>
-        ))}
-      </div>
+      {risk_flags.length > 0 && (
+        <>
+          <h3 style={{ fontSize: '24px', marginBottom: '20px' }}>Risk Flags</h3>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', marginBottom: '40px' }}>
+            {risk_flags.map((flag) => (
+              <span
+                key={flag}
+                style={{ backgroundColor: '#4b566a', padding: '10px 16px', borderRadius: '6px' }}
+              >
+                {flag}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
 
-      <h3 style={{ fontSize: '24px', marginBottom: '20px' }}>Tags</h3>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
-        {['Early Growth Zone', 'Infrastructure-Driven Suburb'].map((tag) => (
-          <span
-            key={tag}
-            style={{ backgroundColor: '#4b566a', padding: '8px 14px', borderRadius: '4px', fontSize: '14px' }}
-          >
-            {tag}
-          </span>
-        ))}
-      </div>
+      {tags.length > 0 && (
+        <>
+          <h3 style={{ fontSize: '24px', marginBottom: '20px' }}>Tags</h3>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
+            {tags.map((tag) => (
+              <span
+                key={tag}
+                style={{
+                  backgroundColor: '#4b566a',
+                  padding: '8px 14px',
+                  borderRadius: '4px',
+                  fontSize: '14px',
+                }}
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
 
       <div
         style={{
@@ -122,6 +269,6 @@ export default function SuburbPage() {
           Unlock for $9
         </button>
       </div>
-    </div>
+    </>
   )
 }

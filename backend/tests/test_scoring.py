@@ -154,3 +154,17 @@ def test_calculate_demographic_score_is_simple_average() -> None:
 def test_calculate_economic_score_weights_income_at_60pct() -> None:
     assert calculate_economic_score(100, 0) == pytest.approx(60.0)
     assert calculate_economic_score(0, 100) == pytest.approx(40.0)
+
+
+def test_calculate_economic_score_clamps_above_100() -> None:
+    """Regression: callers occasionally passed income_index > 100 (high-income
+    suburbs); the public score contract is 0-100 so the sub-score must clamp."""
+    from app.core.scoring import calculate_economic_score
+    assert calculate_economic_score(150, 80) == pytest.approx(100.0, abs=0.01)
+    assert calculate_economic_score(120, 50) == pytest.approx(92.0, abs=0.01)
+
+
+def test_calculate_economic_score_clamps_below_0() -> None:
+    """Defensive: negative inputs should not produce a negative score."""
+    from app.core.scoring import calculate_economic_score
+    assert calculate_economic_score(-10, -10) == pytest.approx(0.0, abs=0.01)
