@@ -46,3 +46,33 @@ def test_suburb_report_handles_low_renter_suburb(client) -> None:
     flags = response.json()["risk_flags"]
     # 31.5% renters → below the 40% threshold, so no rental flag
     assert not any("rental pressure" in f.lower() for f in flags)
+
+
+def test_suburb_report_populates_name_and_state(client) -> None:
+    """Regression: /suburb/{id} used to return sa2_name=None and state=None
+    because it pulled only ABSCEntensMetrics (which doesn't have those fields).
+    The endpoint now joins SA2Region so the response carries the human-readable
+    name + state code."""
+    response = client.get("/suburb/47002")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sa2_name"] == "Chermside QLD"
+    assert body["state"] == "QLD"
+
+
+def test_suburb_report_economic_score_within_contract(client) -> None:
+    """Regression: Chermside's median income ($102k) used to push the economic
+    sub-score to 112, breaking the 0-100 contract. The income_index is now
+    clamped at 100 and the sub-score itself is defensively capped."""
+    response = client.get("/suburb/47002")
+    assert response.status_code == 200
+    scores = response.json()["scores"]
+    for key in (
+        "investment_score",
+        "demographic_score",
+        "economic_score",
+        "housing_pressure_score",
+        "resilience_score",
+        "gov_investment_score",
+    ):
+        assert 0 <= scores[key] <= 100, f"{key}={scores[key]} out of 0-100 range"

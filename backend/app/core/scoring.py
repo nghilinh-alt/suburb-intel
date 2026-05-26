@@ -19,13 +19,14 @@ def calculate_demographic_score(pop_growth, young_population_pct):
 
 
 def calculate_economic_score(income_index, employment_diversity):
-    """Economic strength score"""
-    # Income index weighted at 60%, employment diversity at 40%
-    economic = (
-        income_index * 0.6 +
-        employment_diversity * 0.4
-    )
-    return round(economic, 2)
+    """Economic strength score, clamped to the 0-100 contract.
+
+    Income index weighted at 60%, employment diversity at 40%. The clamp is
+    defensive: callers should already cap income_index at 100, but if either
+    input slips above 100 we still honour the public score range.
+    """
+    economic = income_index * 0.6 + employment_diversity * 0.4
+    return round(min(max(economic, 0.0), 100.0), 2)
 
 
 def calculate_housing_pressure_score(renter_pct, household_pressure):

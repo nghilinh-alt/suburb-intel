@@ -16,11 +16,20 @@ from app.core.utils import (
     calculate_household_pressure,
     get_industry_diversity,
 )
-from app.db.models import ABSCEntensMetrics, InfrastructureProject, SA2ProjectLink
+from app.db.models import (
+    ABSCEntensMetrics,
+    InfrastructureProject,
+    SA2ProjectLink,
+    SA2Region,
+)
 from app.db.session import get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Suburbs with median income at or above this number get a maxed-out income sub-score.
+# (Until we have proper percentile scoring, this is the cap.)
+_INCOME_INDEX_CEILING = 85_000.0
 
 
 @router.get("/{sa2_code}")
@@ -30,12 +39,26 @@ async def suburb_report(
 ) -> Dict[str, Any]:
     """Return investment-score report for an SA2 region."""
     try:
-        census_metrics = await db.get(ABSCEntensMetrics, (sa2_code, 2021))
-        if not census_metrics:
+        # Pull region metadata + census metrics in one round-trip so the
+        # response carries sa2_name and state (which live on SA2Region, not
+        # on ABSCEntensMetrics).
+        stmt = (
+            select(SA2Region, ABSCEntensMetrics)
+            .join(
+                ABSCEntensMetrics,
+                (ABSCEntensMetrics.sa2_code == SA2Region.sa2_code)
+                & (ABSCEntensMetrics.year == 2021),
+            )
+            .where(SA2Region.sa2_code == sa2_code)
+        )
+        result = await db.execute(stmt)
+        row = result.first()
+        if row is None:
             raise HTTPException(
                 status_code=404,
                 detail=f"SA2 region '{sa2_code}' not found. Use /search to find valid codes.",
             )
+        region, census_metrics = row
 
         gov_projects = await _fetch_linked_projects(db, sa2_code)
         features = _build_features(census_metrics, gov_projects)
@@ -47,8 +70,8 @@ async def suburb_report(
 
         return {
             "sa2_code": sa2_code,
-            "sa2_name": getattr(census_metrics, "sa2_name", None),
-            "state": getattr(census_metrics, "state", None),
+            "sa2_name": region.sa2_name,
+            "state": region.state,
             "scores": scores,
             "insight": insight,
             "risk_flags": risk_flags,
@@ -102,9 +125,15 @@ def _build_features(
     pop_growth = 35.0
     young_population_pct = 32.0
 
-    income_index = (
-        census_metrics.median_income / 85000.0 * 100 if census_metrics.median_income else 70.0
-    )
+    # Clamp income_index at 100. Median income at or above _INCOME_INDEX_CEILING
+    # (currently 85k) scores the max; this prevents the composite score from
+    # exceeding the 0-100 contract for high-income suburbs.
+    if census_metrics.median_income:
+        income_index = min(
+            census_metrics.median_income / _INCOME_INDEX_CEILING * 100, 100.0
+        )
+    else:
+        income_index = 70.0
     renter_pct = census_metrics.renters_pct or 40.0
 
     return {
@@ -120,7 +149,7 @@ def _build_features(
 
 
 def _census_to_dict(metrics: ABSCEntensMetrics) -> Dict[str, Any]:
-    """SQLAlchemy model -> plain dict, so downstream code can `.get()` safely."""
+    """SQLAlchemy model -> plain dict so downstream code can `.get()` safely."""
     return {
         "sa2_code": metrics.sa2_code,
         "year": metrics.year,
