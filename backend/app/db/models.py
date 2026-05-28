@@ -84,6 +84,12 @@ class ABSCEntensMetrics(Base):
     avg_school_icsea = Column(Float, nullable=True, comment="Enrolment-weighted avg ICSEA across schools whose postcode maps to this SA2 (2025 data)")
     num_schools = Column(Integer, nullable=True, comment="Number of schools with a valid ICSEA score in this SA2 (2025 data)")
 
+    # ── Public Transport stops (GTFS) ────────────────────────────────────────
+    pt_stop_train = Column(Integer, nullable=True, comment="Count of unique rail/metro stops within SA2 boundary (GTFS route_type 1, 2)")
+    pt_stop_tram  = Column(Integer, nullable=True, comment="Count of unique tram/light-rail stops within SA2 boundary (GTFS route_type 0)")
+    pt_stop_bus   = Column(Integer, nullable=True, comment="Count of unique bus stops within SA2 boundary (GTFS route_type 3)")
+    pt_stop_ferry = Column(Integer, nullable=True, comment="Count of unique ferry stops within SA2 boundary (GTFS route_type 4)")
+
     # ── Legacy / cross-census fields ─────────────────────────────────────────
     industry_profile = Column(JSON, nullable=True, comment="DEPRECATED – industry bucket proportions (G53 not in scope)")
     pop_growth_5yr = Column(Float, nullable=True, comment="Population growth % between 2016 and 2021 Census")

@@ -16,6 +16,9 @@ venv/
 data/datapacks/
 data/vic_sample/
 
+# GTFS feeds — large downloads, never commit
+data/gtfs/
+
 # SQLite dev database — local only
 backend/*.db
 
