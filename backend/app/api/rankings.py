@@ -1,111 +1,62 @@
-from fastapi import APIRouter, Query, Depends
+"""Rankings endpoint — returns top suburbs by precomputed score columns."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.session import get_db
+
 from app.db.models import SA2Region, SuburbScore
-from app.core.scoring import calculate_investment_score
+from app.db.session import get_db
 
 router = APIRouter()
+
+_VALID_SCORE_TYPES = frozenset({
+    "investment_score",
+    "demographic_score",
+    "economic_score",
+    "housing_pressure_score",
+    "resilience_score",
+    "gov_investment_score",
+})
 
 
 @router.get("/")
 async def get_rankings(
-    limit: int = Query(25, ge=10, le=200, description="Number of suburbs to rank"),
-    score_type: str = Query("investment", description="Score type: investment, population, income"),
-    include_details: bool = Query(False, description="Include full suburb details"),
-    db: AsyncSession = Depends(get_db)
+    limit: int = Query(25, ge=10, le=200, description="Number of suburbs to return"),
+    score_type: str = Query("investment_score", description="Score column to rank by"),
+    db: AsyncSession = Depends(get_db),
 ):
+    """Return top suburbs ranked by a precomputed score column.
+
+    Results are drawn from the suburb_scores table, populated by the backfill job.
     """
-    Get ranked list of suburbs
-    
-    Args:
-        limit: Number of top suburbs to return (10-200)
-        score_type: Primary ranking metric
-        include_details: Include full suburb information
-    
-    Returns:
-        Ranked suburbs with their scores and details
-    """
-    
-    # For MVP, generate mock rankings
-    # In production, query suburb_scores table
-    
-    import random
-    
-    sa2_codes = [
-        "30150", "34005", "48210", "47002", "22625",
-        "21045", "31395", "20605", "31285", "25605",
-        "27705", "22305", "38305", "31065", "25765",
-        "24910", "37755", "22210", "31050", "20705"
-    ]
-    
-    suburb_names = [
-        "Altona Gardens", "Ashtabula", "Brisbane Waters", "Chermside", "Cronulla Sydney",
-        "Fairfield", "Greenslopes", "Hurstville", "Kogarah", "Liverpool",
-        "Manly", "Parramatta", "Ringwood", "South Melbourne", "Strathfield",
-        "Tweed Heads", "Wavell Heights", "Zillmere", "Blacktown", "Campbelltown"
-    ]
-    
-    # Generate rankings data
-    rankings = []
-    for i in range(limit):
-        sa2_code = random.choice(sa2_codes)
-        
-        # Weighted random scores to create realistic distribution
-        base_score = random.gauss(70, 15)
-        investment_score = round(min(max(base_score, 45), 98), 1)
-        
-        demographic_score = round(random.uniform(60, 90), 1)
-        economic_score = round(random.uniform(55, 85), 1)
-        housing_pressure_score = round(random.uniform(45, 75), 1)
-        resilience_score = round(random.uniform(55, 80), 1)
-        gov_investment_score = round(random.uniform(30, 95), 1)
-        
-        # Generate some risk flags occasionally
-        risk_flags = None
-        if random.random() < 0.3:
-            risk_type = random.choice(["retail", "rental", "industry"])
-            risk_flags = [f"High {risk_type} concentration"]
-        
-        # Generate tags based on scores
-        tags = []
-        if investment_score > 85:
-            tags.append("Premium Investment")
-        elif investment_score > 70:
-            tags.append("Strong Growth")
-        else:
-            tags.append("Emerging Opportunity")
-        
-        if gov_investment_score > 80:
-            tags.append("Infrastructure-Driven")
-        elif gov_investment_score > 50:
-            tags.append("Government-Supported")
-        
-        suburb = {
-            "rank": i + 1,
-            "sa2_code": sa2_code,
-            "investment_score": investment_score,
-            "demographic_score": demographic_score,
-            "economic_score": economic_score,
-            "housing_pressure_score": housing_pressure_score,
-            "resilience_score": resilience_score,
-            "government_investment_score": gov_investment_score,
-            "risk_flags": risk_flags,
-            "tags": tags
-        }
-        
-        if include_details:
-            suburb["suburb_name"] = random.choice(suburb_names)
-            suburb["state"] = random.choice(["NSW", "VIC", "QLD"])
-            suburb["population"] = random.randint(8000, 45000)
-            suburb["median_income"] = random.randint(75000, 120000)
-        
-        rankings.append(suburb)
-    
-    # Reverse to show highest scores first
-    rankings.sort(key=lambda x: x["investment_score"], reverse=True)
-    
+    if score_type not in _VALID_SCORE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"score_type must be one of {sorted(_VALID_SCORE_TYPES)}",
+        )
+
+    order_col = getattr(SuburbScore, score_type)
+    stmt = (
+        select(SuburbScore, SA2Region.sa2_name, SA2Region.state)
+        .join(SA2Region, SA2Region.sa2_code == SuburbScore.sa2_code)
+        .order_by(order_col.desc().nulls_last())
+        .limit(limit)
+    )
+    rows = (await db.execute(stmt)).all()
+
     return {
-        "rankings": rankings,
-        "total_available": len(sa2_codes),
-        "score_type": score_type
+        "score_type": score_type,
+        "count": len(rows),
+        "rankings": [
+            {
+                "rank": i + 1,
+                "sa2_code": score.sa2_code,
+                "sa2_name": name,
+                "state": state,
+                **{c: getattr(score, c) for c in _VALID_SCORE_TYPES},
+            }
+            for i, (score, name, state) in enumerate(rows)
+        ],
     }

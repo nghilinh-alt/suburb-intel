@@ -157,29 +157,64 @@ async def _resolve_sa2_code(db: AsyncSession, suburb_name: str) -> str:
 async def get_top_suburbs(
     limit: int = Query(20, ge=5, le=100, description="Number of top suburbs to return"),
     by: str = Query("investment_score", description="Sort by: investment_score, population, median_income"),
+    db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    """Return top suburbs by a given metric.
+    """Return top suburbs by a given metric, sourced from the suburb_scores table."""
+    from app.db.models import SuburbScore
 
-    Currently returns mock data; in production this should query `suburb_scores`.
-    """
-    import random
+    _valid_by = {"investment_score", "population", "median_income"}
+    if by not in _valid_by:
+        raise HTTPException(status_code=400, detail=f"'by' must be one of {sorted(_valid_by)}")
 
-    sa2_codes = ["30150", "34005", "48210", "47002", "22625"]
-    top_suburbs = [
-        {
-            "sa2_code": code,
-            "investment_score": round(random.uniform(65, 90), 1),
-            "population": random.randint(10000, 30000),
-            "median_income": random.randint(70000, 120000),
-        }
-        for code in sa2_codes
-    ]
-
-    if by == "population":
-        top_suburbs.sort(key=lambda x: x["population"], reverse=True)
-    elif by == "median_income":
-        top_suburbs.sort(key=lambda x: x["median_income"], reverse=True)
+    if by == "investment_score":
+        order_col = SuburbScore.investment_score
+        stmt = (
+            select(SuburbScore, SA2Region.sa2_name, SA2Region.state,
+                   ABSCEntensMetrics.population, ABSCEntensMetrics.median_income)
+            .join(SA2Region, SA2Region.sa2_code == SuburbScore.sa2_code)
+            .outerjoin(
+                ABSCEntensMetrics,
+                (ABSCEntensMetrics.sa2_code == SuburbScore.sa2_code)
+                & (ABSCEntensMetrics.year == 2021),
+            )
+            .order_by(order_col.desc().nulls_last())
+            .limit(limit)
+        )
+        rows = (await db.execute(stmt)).all()
+        suburbs = [
+            {
+                "sa2_code": score.sa2_code,
+                "sa2_name": name,
+                "state": state,
+                "investment_score": score.investment_score,
+                "population": pop,
+                "median_income": income,
+            }
+            for score, name, state, pop, income in rows
+        ]
     else:
-        top_suburbs.sort(key=lambda x: x["investment_score"], reverse=True)
+        order_col = getattr(ABSCEntensMetrics, by)
+        stmt = (
+            select(SA2Region, ABSCEntensMetrics)
+            .join(
+                ABSCEntensMetrics,
+                (ABSCEntensMetrics.sa2_code == SA2Region.sa2_code)
+                & (ABSCEntensMetrics.year == 2021),
+            )
+            .order_by(order_col.desc().nulls_last())
+            .limit(limit)
+        )
+        rows = (await db.execute(stmt)).all()
+        suburbs = [
+            {
+                "sa2_code": region.sa2_code,
+                "sa2_name": region.sa2_name,
+                "state": region.state,
+                "investment_score": None,
+                "population": census.population,
+                "median_income": census.median_income,
+            }
+            for region, census in rows
+        ]
 
-    return {"count": len(top_suburbs), "by": by, "suburbs": top_suburbs[:limit]}
+    return {"count": len(suburbs), "by": by, "suburbs": suburbs}
