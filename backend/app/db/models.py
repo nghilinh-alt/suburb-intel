@@ -67,6 +67,10 @@ class ABSCEntensMetrics(Base):
     one_bedroom_pct = Column(Float, nullable=True, comment="% of dwellings with 1 bedroom (G41)")
     unemployment_pct = Column(Float, nullable=True, comment="Unemployment rate within labour force (G46)")
 
+    # ── Schools (ICSEA 2025) ─────────────────────────────────────────────────
+    avg_school_icsea = Column(Float, nullable=True, comment="Enrolment-weighted avg ICSEA across schools whose postcode maps to this SA2 (2025 data)")
+    num_schools = Column(Integer, nullable=True, comment="Number of schools with a valid ICSEA score in this SA2 (2025 data)")
+
     # ── Legacy / cross-census fields ─────────────────────────────────────────
     industry_profile = Column(JSON, nullable=True, comment="DEPRECATED – industry bucket proportions (G53 not in scope)")
     pop_growth_5yr = Column(Float, nullable=True, comment="Population growth % between 2016 and 2021 Census")
