@@ -53,6 +53,11 @@ _OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 _BBOX_BUFFER  = 0.005   # degrees — expand bbox so boundary features aren't clipped
 _TIMEOUT      = 60      # Overpass query timeout (seconds)
 
+# SA2s whose polygon area exceeds this threshold (rough square-degrees) are
+# predominantly rural and will have near-zero amenity counts anyway, so we
+# skip the Overpass call and store zeros.  ~0.02 sq-deg ≈ 200 km² at Aus. latitudes.
+_MAX_POLYGON_AREA = 0.02
+
 # ---------------------------------------------------------------------------
 # Amenity category → OSM tag matcher
 # ---------------------------------------------------------------------------
@@ -174,6 +179,18 @@ def load_osm_amenities(
             report.sa2s_no_geom += 1
             continue
 
+        # Skip very large rural SA2s — they score 0 and their bboxes cause
+        # Overpass timeouts.
+        if polygon.area > _MAX_POLYGON_AREA:
+            logger.debug("SA2 %s (%s) too large (%.4f sq-deg) — storing zeros", sa2_code, sa2_name, polygon.area)
+            metrics = db.get(ABSCEntensMetrics, (sa2_code, year))
+            if metrics is not None:
+                for col in _CAT_COLUMN.values():
+                    setattr(metrics, col, 0)
+                metrics.amenity_score = 0.0
+                report.sa2s_updated += 1
+            continue
+
         # Bounding box with buffer
         minx, miny, maxx, maxy = polygon.bounds
         bbox = (
@@ -185,7 +202,7 @@ def load_osm_amenities(
 
         features = _fetch_overpass(session, bbox, report)
         if features is None:
-            time.sleep(request_delay)
+            time.sleep(request_delay * 2)   # extra pause after any error
             continue
 
         # Count amenities inside the actual polygon
@@ -239,7 +256,8 @@ def _fetch_overpass(
     """Run a combined Overpass query for all tracked amenity types.
 
     Returns a list of OSM elements (nodes + way/relation centroids), or None
-    on error.
+    on error.  Handles 429 rate-limit with a 30 s backoff and one retry;
+    504 gateway timeout with a 10 s backoff and one retry.
     """
     s, w, n, e = bbox
     bbox_str = f"{s:.6f},{w:.6f},{n:.6f},{e:.6f}"
@@ -256,22 +274,50 @@ def _fetch_overpass(
         "out body center qt;"
     )
 
-    try:
-        resp = session.post(_OVERPASS_URL, data={"data": query}, timeout=_TIMEOUT + 10)
-        resp.raise_for_status()
-        return resp.json().get("elements", [])
-    except requests.exceptions.Timeout:
-        logger.warning("Overpass timeout for bbox %s", bbox_str)
+    for attempt in range(2):   # at most 2 attempts
+        try:
+            resp = session.post(_OVERPASS_URL, data={"data": query}, timeout=_TIMEOUT + 10)
+        except requests.exceptions.Timeout:
+            logger.warning("Overpass timeout bbox %s (attempt %d)", bbox_str, attempt + 1)
+            if attempt == 0:
+                time.sleep(10)
+                continue
+            report.api_errors += 1
+            return None
+        except requests.exceptions.RequestException as exc:
+            logger.warning("Overpass request error bbox %s: %s", bbox_str, exc)
+            report.api_errors += 1
+            return None
+
+        if resp.status_code == 200:
+            try:
+                return resp.json().get("elements", [])
+            except ValueError as exc:
+                logger.warning("Bad Overpass JSON bbox %s: %s", bbox_str, exc)
+                report.api_errors += 1
+                return None
+
+        if resp.status_code == 429:
+            wait = 30 if attempt == 0 else 60
+            logger.warning("Overpass rate-limited (429) — sleeping %ds ...", wait)
+            time.sleep(wait)
+            continue   # retry
+
+        if resp.status_code == 504:
+            if attempt == 0:
+                logger.warning("Overpass 504 timeout bbox %s — retrying after 10s ...", bbox_str)
+                time.sleep(10)
+                continue
+            logger.warning("Overpass 504 on retry bbox %s — skipping", bbox_str)
+            report.api_errors += 1
+            return None
+
+        logger.warning("Overpass HTTP %d bbox %s: %s", resp.status_code, bbox_str, resp.text[:100])
         report.api_errors += 1
         return None
-    except requests.exceptions.RequestException as exc:
-        logger.warning("Overpass error for bbox %s: %s", bbox_str, exc)
-        report.api_errors += 1
-        return None
-    except (ValueError, KeyError) as exc:
-        logger.warning("Bad Overpass JSON for bbox %s: %s", bbox_str, exc)
-        report.api_errors += 1
-        return None
+
+    report.api_errors += 1
+    return None
 
 
 # ---------------------------------------------------------------------------
