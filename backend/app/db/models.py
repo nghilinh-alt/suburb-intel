@@ -22,6 +22,9 @@ class SA2Region(Base):
     gcc_code = Column(Text, nullable=True)
     gcc_name = Column(Text, nullable=True)
     area_sqkm = Column(Float, nullable=True)
+    # Simplified polygon as GeoJSON text.
+    # SQLite: stored as TEXT.  PostgreSQL migration: ALTER COLUMN → GEOMETRY(MultiPolygon, 4326) + PostGIS index.
+    geometry_geojson = Column(Text, nullable=True, comment="Simplified GeoJSON polygon (WGS84). Migrate to PostGIS GEOMETRY on PostgreSQL.")
 
     __table_args__ = (Index("ix_sa2_regions_name", "sa2_name"),)
 
@@ -66,6 +69,16 @@ class ABSCEntensMetrics(Base):
     # ── Risk (G37, G41, G46) ─────────────────────────────────────────────────
     one_bedroom_pct = Column(Float, nullable=True, comment="% of dwellings with 1 bedroom (G41)")
     unemployment_pct = Column(Float, nullable=True, comment="Unemployment rate within labour force (G46)")
+
+    # ── SEIFA 2021 ───────────────────────────────────────────────────────────
+    seifa_irsd_score  = Column(Float,   nullable=True, comment="IRSD score (~1000 mean; low = more disadvantaged)")
+    seifa_irsd_decile = Column(Integer, nullable=True, comment="IRSD decile 1–10 within Australia (1 = most disadvantaged)")
+    seifa_irsad_score  = Column(Float,   nullable=True, comment="IRSAD score (advantage AND disadvantage)")
+    seifa_irsad_decile = Column(Integer, nullable=True, comment="IRSAD decile 1–10 within Australia")
+    seifa_ier_score    = Column(Float,   nullable=True, comment="IER score (economic resources)")
+    seifa_ier_decile   = Column(Integer, nullable=True, comment="IER decile 1–10 within Australia")
+    seifa_ieo_score    = Column(Float,   nullable=True, comment="IEO score (education and occupation)")
+    seifa_ieo_decile   = Column(Integer, nullable=True, comment="IEO decile 1–10 within Australia")
 
     # ── Schools (ICSEA 2025) ─────────────────────────────────────────────────
     avg_school_icsea = Column(Float, nullable=True, comment="Enrolment-weighted avg ICSEA across schools whose postcode maps to this SA2 (2025 data)")
