@@ -38,8 +38,12 @@ def main() -> None:
         sys.exit(1)
 
     # Import here so the sys.path manipulation in session.py runs after arg parsing.
-    from app.db.session import get_sync_session
+    from app.db.models import Base
+    from app.db.session import get_sync_session, sync_engine
     from app.ingestion.abs_datapack_loader import load_datapack
+
+    # Ensure all tables exist (no-op if already up to date).
+    Base.metadata.create_all(bind=sync_engine)
 
     db = get_sync_session()
     try:

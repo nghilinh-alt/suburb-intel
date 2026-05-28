@@ -9,8 +9,15 @@ __pycache__/
 env/
 venv/
 
-# Database files (optional - uncomment if you want to ignore them)
+# Database files
 # backend/*.db
+
+# ABS DataPack zips and extracted sample CSVs — large files, never commit
+data/datapacks/
+data/vic_sample/
+
+# SQLite dev database — local only
+backend/*.db
 
 # Node modules
 node_modules/

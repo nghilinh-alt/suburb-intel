@@ -39,6 +39,7 @@ from app.db.models import (  # noqa: E402
     InfrastructureProject,
     SA2ProjectLink,
     SA2Region,
+    SuburbScore,
 )
 from app.db.session import AsyncSessionLocal, init_models  # noqa: E402
 from app.main import app  # noqa: E402
@@ -105,6 +106,28 @@ async def _seed() -> None:
         )
         session.add(
             SA2ProjectLink(sa2_code="47002", project_id="INFRA-002", impact_score=92.0)
+        )
+        session.add_all(
+            [
+                SuburbScore(
+                    sa2_code="47002",
+                    investment_score=82.5,
+                    demographic_score=78.0,
+                    economic_score=85.0,
+                    housing_pressure_score=60.0,
+                    resilience_score=75.0,
+                    gov_investment_score=90.0,
+                ),
+                SuburbScore(
+                    sa2_code="22625",
+                    investment_score=71.0,
+                    demographic_score=68.0,
+                    economic_score=72.0,
+                    housing_pressure_score=55.0,
+                    resilience_score=70.0,
+                    gov_investment_score=50.0,
+                ),
+            ]
         )
         await session.commit()
 

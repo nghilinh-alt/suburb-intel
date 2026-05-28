@@ -31,14 +31,46 @@ class ABSCEntensMetrics(Base):
 
     sa2_code = Column(Text, ForeignKey("sa2_regions.sa2_code"), nullable=False, primary_key=True)
     year = Column(Integer, nullable=False, primary_key=True)
-    population = Column(Integer, nullable=True)
-    median_income = Column(Integer, nullable=True)
+
+    # ── Demographics (G02, G09, G29, G37) ────────────────────────────────────
+    population = Column(Integer, nullable=True, comment="Usual resident population (from G44 Tot_P)")
     median_age = Column(Float, nullable=True)
+    median_income = Column(Integer, nullable=True, comment="Median annual personal income (weekly × 52)")
+    median_mortgage_monthly = Column(Float, nullable=True)
+    median_rent_weekly = Column(Float, nullable=True)
+    overseas_born_pct = Column(Float, nullable=True, comment="% of population born overseas (G09)")
+    families_with_children_pct = Column(Float, nullable=True, comment="% of families with children under 15 (G29)")
     renters_pct = Column(Float, nullable=True)
     owners_pct = Column(Float, nullable=True)
-    industry_profile = Column(JSON, nullable=True)
+    social_housing_pct = Column(Float, nullable=True, comment="% of dwellings rented from govt/community housing (G37)")
+
+    # ── Property (G35, G36, G38, G40) ────────────────────────────────────────
+    avg_household_size = Column(Float, nullable=True)
+    separate_house_pct = Column(Float, nullable=True, comment="% of occupied private dwellings that are separate houses (G36)")
+    flat_apartment_pct = Column(Float, nullable=True, comment="% of occupied private dwellings that are flats/apartments (G36)")
+    high_mortgage_stress_pct = Column(Float, nullable=True, comment="% of mortgaged dwellings paying ≥$3 000/month (G38)")
+    high_rent_stress_pct = Column(Float, nullable=True, comment="% of rented dwellings paying ≥$650/week (G40)")
+
+    # ── Growth / Gentrification (G44, G45, G49, G60) ─────────────────────────
+    moved_in_1yr_pct = Column(Float, nullable=True, comment="% who moved from a different SA2 or overseas in the past year (G44)")
+    moved_in_5yr_pct = Column(Float, nullable=True, comment="% who moved from a different SA2 or overseas in the past 5 years (G45)")
+    uni_degree_pct = Column(Float, nullable=True, comment="% with bachelor degree or higher (G49)")
+    professionals_managers_pct = Column(Float, nullable=True, comment="% employed as managers or professionals (G60)")
+
+    # ── Lifestyle (G34, G62) ──────────────────────────────────────────────────
+    zero_car_dwellings_pct = Column(Float, nullable=True, comment="% of dwellings with no motor vehicles (G34)")
+    pt_commute_pct = Column(Float, nullable=True, comment="% who commute by public transport (single-mode, G62)")
+    car_commute_pct = Column(Float, nullable=True, comment="% who commute by car (single-mode, G62)")
+    work_from_home_pct = Column(Float, nullable=True, comment="% who work from home (G62)")
+
+    # ── Risk (G37, G41, G46) ─────────────────────────────────────────────────
+    one_bedroom_pct = Column(Float, nullable=True, comment="% of dwellings with 1 bedroom (G41)")
+    unemployment_pct = Column(Float, nullable=True, comment="Unemployment rate within labour force (G46)")
+
+    # ── Legacy / cross-census fields ─────────────────────────────────────────
+    industry_profile = Column(JSON, nullable=True, comment="DEPRECATED – industry bucket proportions (G53 not in scope)")
     pop_growth_5yr = Column(Float, nullable=True, comment="Population growth % between 2016 and 2021 Census")
-    young_population_pct = Column(Float, nullable=True, comment="% of population aged 15-34")
+    young_population_pct = Column(Float, nullable=True, comment="DEPRECATED – % aged 15-34 (G01 not in scope)")
 
 
 class InfrastructureProject(Base):

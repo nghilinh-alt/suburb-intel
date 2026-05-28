@@ -6,6 +6,13 @@ SA2Region + ABSCEntensMetrics rows into the configured database.
 Supported DataPack format: CSV short-header, SA2 geography.
 Download from: https://www.abs.gov.au/census/find-census-data/datapacks
 
+Tables consumed (all others are ignored):
+    Demographics        : G02, G09 (parts F-H, Persons only), G29, G37
+    Property            : G35, G36, G38, G40
+    Growth/Gentrification: G44, G45, G49B, G60B
+    Lifestyle           : G34, G62
+    Risk                : G37 (shared), G41, G46B
+
 Usage (CLI):
     cd backend
     .\.venv\Scripts\Activate.ps1
@@ -16,6 +23,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,7 +37,7 @@ from app.db.models import ABSCEntensMetrics, SA2Region
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# State code mapping (first digit of SA2 code → short code, full name)
+# State code mapping  (first digit of SA2 code → short code, full name)
 # ---------------------------------------------------------------------------
 _STATE_MAP: dict[str, tuple[str, str]] = {
     "1": ("NSW", "New South Wales"),
@@ -42,38 +50,6 @@ _STATE_MAP: dict[str, tuple[str, str]] = {
     "8": ("ACT", "Australian Capital Territory"),
     "9": ("OT", "Other Territories"),
 }
-
-# ---------------------------------------------------------------------------
-# Industry bucket mapping (DataPack short column name → scoring bucket)
-# ---------------------------------------------------------------------------
-# Columns from G53B (P_ persons totals for first 15 industries)
-# Columns from G53C (P_ persons totals for last 4 industries + grand total)
-_INDUSTRY_COLS_G53B: list[tuple[str, str]] = [
-    ("P_AgriForestFish_ToT", "agriculture"),
-    ("P_Min_ToT", "services"),          # Mining → services (no dedicated bucket)
-    ("P_Mnfg_ToT", "manufacturing"),
-    ("P_EGW_WS_ToT", "services"),       # Electricity/Gas/Water → services
-    ("P_Cnstn_ToT", "construction"),
-    ("P_WTrade_ToT", "retail"),          # Wholesale trade → retail bucket
-    ("P_RTrade_ToT", "retail"),
-    ("P_AccomFoodS_ToT", "retail"),      # Accommodation/Food → retail
-    ("P_TransPostWhse_ToT", "services"),
-    ("P_InfoMedTelecom_ToT", "tech"),
-    ("P_FinInsurS_ToT", "finance"),
-    ("P_RentHirREserv_ToT", "services"),
-    ("P_ProScieTechServ_ToT", "tech"),   # Professional/Scientific/Technical → tech
-    ("P_AdminSupServ_ToT", "services"),
-    ("P_PubAdmiSafety_ToT", "services"),
-]
-
-_INDUSTRY_COLS_G53C: list[tuple[str, str]] = [
-    ("P_EducTrain_ToT", "education"),
-    ("P_HealthCareSocA_ToT", "healthcare"),
-    ("P_ArtRecServ_ToT", "services"),
-    ("P_OthServ_ToT", "services"),
-]
-
-_INDUSTRY_TOTAL_COL = "P_ToT_ToT"  # Grand total from G53C
 
 
 # ---------------------------------------------------------------------------
@@ -127,39 +103,50 @@ def load_datapack(
         names = zf.namelist()
 
         # ----------------------------------------------------------------
-        # Build geography lookups from the Metadata Excel
+        # Geography lookups
         # ----------------------------------------------------------------
         geog_df = _load_geography(zf, names)
-        sa2_lookup: dict[str, dict] = _build_sa2_lookup(geog_df)
-        sa3_names: dict[str, str] = dict(
-            zip(
-                geog_df.loc[geog_df["ASGS_Structure"] == "SA3", "Census_Code_2021"],
-                geog_df.loc[geog_df["ASGS_Structure"] == "SA3", "Census_Name_2021"],
-            )
-        )
-        sa4_names: dict[str, str] = dict(
-            zip(
-                geog_df.loc[geog_df["ASGS_Structure"] == "SA4", "Census_Code_2021"],
-                geog_df.loc[geog_df["ASGS_Structure"] == "SA4", "Census_Name_2021"],
-            )
-        )
+        sa2_lookup = _build_sa2_lookup(geog_df)
+        sa3_names: dict[str, str] = dict(zip(
+            geog_df.loc[geog_df["ASGS_Structure"] == "SA3", "Census_Code_2021"],
+            geog_df.loc[geog_df["ASGS_Structure"] == "SA3", "Census_Name_2021"],
+        ))
+        sa4_names: dict[str, str] = dict(zip(
+            geog_df.loc[geog_df["ASGS_Structure"] == "SA4", "Census_Code_2021"],
+            geog_df.loc[geog_df["ASGS_Structure"] == "SA4", "Census_Name_2021"],
+        ))
 
         # ----------------------------------------------------------------
-        # Load the four key CSVs
+        # Load target tables
         # ----------------------------------------------------------------
-        g01 = _read_csv(zf, names, "G01")
-        g02 = _read_csv(zf, names, "G02")
-        g37 = _read_csv(zf, names, "G37")
-        g53b = _read_csv(zf, names, "G53B")
-        g53c = _read_csv(zf, names, "G53C")
+        # Demographics
+        g02  = _read_csv(zf, names, "G02")
+        g09p = _read_csv_parts(zf, names, r"_G09[FGH]_")  # Persons-only parts (F–H)
+        g29  = _read_csv(zf, names, "G29")
+        g37  = _read_csv(zf, names, "G37")
 
-    # Build a combined industry frame (merge G53B + G53C on SA2 code)
-    industry_cols_b = ["SA2_CODE_2021"] + [c for c, _ in _INDUSTRY_COLS_G53B if c in g53b.columns]
-    industry_cols_c = ["SA2_CODE_2021"] + [c for c, _ in _INDUSTRY_COLS_G53C if c in g53c.columns] + [_INDUSTRY_TOTAL_COL]
-    g53 = g53b[industry_cols_b].merge(g53c[industry_cols_c], on="SA2_CODE_2021", how="outer")
+        # Property
+        g35  = _read_csv(zf, names, "G35")
+        g36  = _read_csv(zf, names, "G36")
+        g38  = _read_csv(zf, names, "G38")
+        g40  = _read_csv(zf, names, "G40")
 
-    # Work from G01 SA2 code list as the canonical universe
-    all_codes = set(g01["SA2_CODE_2021"].dropna().astype(str))
+        # Growth / Gentrification
+        g44  = _read_csv(zf, names, "G44")
+        g45  = _read_csv(zf, names, "G45")
+        g49b = _read_csv(zf, names, "G49B")
+        g60b = _read_csv_optional(zf, names, "G60B")
+
+        # Lifestyle
+        g34  = _read_csv(zf, names, "G34")
+        g62  = _read_csv(zf, names, "G62")
+
+        # Risk  (G37 already loaded above)
+        g41  = _read_csv(zf, names, "G41")
+        g46b = _read_csv(zf, names, "G46B")
+
+    # Canonical SA2 universe: G44 covers all usual-resident persons (1 yr+)
+    all_codes = set(g44["SA2_CODE_2021"].dropna().astype(str))
 
     if truncate_first:
         db.query(ABSCEntensMetrics).filter(ABSCEntensMetrics.year == year).delete()
@@ -167,7 +154,7 @@ def load_datapack(
 
     for sa2_code in sorted(all_codes):
         state_digit = sa2_code[0] if sa2_code else ""
-        state_short, _state_long = _STATE_MAP.get(state_digit, ("XX", "Unknown"))
+        state_short, _ = _STATE_MAP.get(state_digit, ("XX", "Unknown"))
 
         if states is not None and state_short not in states:
             continue
@@ -175,11 +162,8 @@ def load_datapack(
         info = sa2_lookup.get(sa2_code, {})
         sa2_name = info.get("name", sa2_code)
         area_sqkm = info.get("area_sqkm")
-
         sa3_code = sa2_code[:5]
         sa4_code = sa2_code[:3]
-        sa3_name = sa3_names.get(sa3_code)
-        sa4_name = sa4_names.get(sa4_code)
 
         # ----------------------------------------------------------------
         # Upsert SA2Region
@@ -190,9 +174,9 @@ def load_datapack(
             sa2_name=sa2_name,
             state=state_short,
             sa3_code=sa3_code,
-            sa3_name=sa3_name,
+            sa3_name=sa3_names.get(sa3_code),
             sa4_code=sa4_code,
-            sa4_name=sa4_name,
+            sa4_name=sa4_names.get(sa4_code),
             gcc_code=None,
             gcc_name=None,
             area_sqkm=area_sqkm,
@@ -205,10 +189,16 @@ def load_datapack(
             report.regions_updated += 1
 
         # ----------------------------------------------------------------
-        # Build census metrics
+        # Build and upsert census metrics
         # ----------------------------------------------------------------
         try:
-            metrics = _build_metrics(sa2_code, year, g01, g02, g37, g53)
+            metrics = _build_metrics(
+                sa2_code, year,
+                g02=g02, g09p=g09p, g29=g29, g34=g34,
+                g35=g35, g36=g36, g37=g37, g38=g38,
+                g40=g40, g41=g41, g44=g44, g45=g45,
+                g46b=g46b, g49b=g49b, g60b=g60b, g62=g62,
+            )
         except Exception as exc:
             report.rows_skipped += 1
             report.skipped_reasons.append(f"{sa2_code}: {exc}")
@@ -228,7 +218,7 @@ def load_datapack(
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# Internal helpers — I/O
 # ---------------------------------------------------------------------------
 
 def _load_geography(zf: zipfile.ZipFile, names: list[str]) -> pd.DataFrame:
@@ -260,7 +250,7 @@ def _build_sa2_lookup(geog_df: pd.DataFrame) -> dict[str, dict]:
 
 
 def _read_csv(zf: zipfile.ZipFile, names: list[str], table_id: str) -> pd.DataFrame:
-    """Find and read a Census table CSV from the zip by table ID (e.g. 'G01')."""
+    """Find and read a Census table CSV (exact table_id match, e.g. 'G02', 'G46B')."""
     pattern = f"_{table_id}_"
     csv_name = next(
         (n for n in names if pattern in n and n.endswith(".csv") and "SA2" in n),
@@ -272,8 +262,51 @@ def _read_csv(zf: zipfile.ZipFile, names: list[str], table_id: str) -> pd.DataFr
         return pd.read_csv(f, dtype={"SA2_CODE_2021": str})
 
 
-def _scalar(df: pd.DataFrame, sa2_code: str, col: str) -> float | None:
-    """Extract a single numeric value from a DataFrame for a given SA2 code."""
+def _read_csv_optional(
+    zf: zipfile.ZipFile, names: list[str], table_id: str
+) -> pd.DataFrame | None:
+    """Like _read_csv but returns None (and logs a warning) if the table is absent."""
+    try:
+        return _read_csv(zf, names, table_id)
+    except FileNotFoundError:
+        logger.warning(
+            "Optional table %s not found in DataPack — related metrics will be NULL",
+            table_id,
+        )
+        return None
+
+
+def _read_csv_parts(
+    zf: zipfile.ZipFile, names: list[str], pattern: str
+) -> pd.DataFrame | None:
+    """Load and column-wise merge all CSV parts whose path matches the regex pattern."""
+    matches = sorted(
+        n for n in names if re.search(pattern, n) and n.endswith(".csv") and "SA2" in n
+    )
+    if not matches:
+        logger.warning(
+            "No CSV parts matched pattern %r — related metrics will be NULL", pattern
+        )
+        return None
+    frames = []
+    for csv_name in matches:
+        with zf.open(csv_name) as f:
+            frames.append(pd.read_csv(f, dtype={"SA2_CODE_2021": str}))
+    result = frames[0]
+    for df in frames[1:]:
+        new_cols = ["SA2_CODE_2021"] + [c for c in df.columns if c not in result.columns]
+        result = result.merge(df[new_cols], on="SA2_CODE_2021", how="outer")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers — scalar extraction
+# ---------------------------------------------------------------------------
+
+def _scalar(df: pd.DataFrame | None, sa2_code: str, col: str) -> float | None:
+    """Extract a single numeric value; returns None if df is None, col is missing, or value is NaN."""
+    if df is None or col not in df.columns:
+        return None
     rows = df.loc[df["SA2_CODE_2021"] == sa2_code, col]
     if rows.empty:
         return None
@@ -286,83 +319,284 @@ def _scalar(df: pd.DataFrame, sa2_code: str, col: str) -> float | None:
         return None
 
 
-def _compute_young_pct(g01: pd.DataFrame, sa2_code: str) -> float | None:
-    """% of population aged 15–34, capped at 100."""
-    total = _scalar(g01, sa2_code, "Tot_P_P")
-    if not total:
+def _pct(numerator: float | None, denominator: float | None, *, cap: float = 100.0) -> float | None:
+    """Safe percentage: (numerator / denominator) × 100, capped at cap. Returns None on bad input."""
+    if numerator is None or denominator is None or denominator <= 0:
         return None
-    young = sum(
-        _scalar(g01, sa2_code, col) or 0.0
-        for col in ("Age_15_19_yr_P", "Age_20_24_yr_P", "Age_25_34_yr_P")
+    return min(numerator / denominator * 100.0, cap)
+
+
+# ---------------------------------------------------------------------------
+# Per-metric computation helpers
+# ---------------------------------------------------------------------------
+
+def _compute_overseas_born_pct(g09p: pd.DataFrame | None, sa2_code: str) -> float | None:
+    """% of population born overseas (G09H P_Tot_Tot minus Australia-born and not-stated)."""
+    if g09p is None:
+        return None
+    total      = _scalar(g09p, sa2_code, "P_Tot_Tot")
+    australia  = _scalar(g09p, sa2_code, "P_Australia_Tot") or 0.0
+    not_stated = _scalar(g09p, sa2_code, "P_COB_NS_Tot")    or 0.0
+    if total is None or total <= 0:
+        return None
+    return _pct(total - australia - not_stated, total)
+
+
+def _compute_families_with_children_pct(g29: pd.DataFrame, sa2_code: str) -> float | None:
+    """% of family units that include at least one child under 15."""
+    cf_kids  = _scalar(g29, sa2_code, "CF_ChU15_a_Total_F")
+    opf_kids = _scalar(g29, sa2_code, "OPF_ChU15_a_Total_F")
+    total    = _scalar(g29, sa2_code, "Total_F")
+    if cf_kids is None and opf_kids is None:
+        return None
+    return _pct((cf_kids or 0.0) + (opf_kids or 0.0), total)
+
+
+def _compute_zero_car_dwellings_pct(g34: pd.DataFrame, sa2_code: str) -> float | None:
+    """% of dwellings with no registered motor vehicles."""
+    return _pct(
+        _scalar(g34, sa2_code, "Num_MVs_per_dweling_0_MVs"),
+        _scalar(g34, sa2_code, "Total_dwelings"),
     )
-    return min(young / total * 100.0, 100.0)
 
 
-def _compute_renters_pct(g37: pd.DataFrame, sa2_code: str) -> float | None:
-    """% of occupied dwellings that are rented."""
-    total = _scalar(g37, sa2_code, "Total_Total")
+def _compute_avg_household_size(g35: pd.DataFrame, sa2_code: str) -> float | None:
+    """Weighted average persons per dwelling (6+ band counted as 6)."""
+    total = _scalar(g35, sa2_code, "Total_Total")
     if not total:
         return None
-    rented = _scalar(g37, sa2_code, "R_Tot_Total") or 0.0
-    return min(rented / total * 100.0, 100.0)
+    persons_sum = sum(
+        (_scalar(g35, sa2_code, f"Num_Psns_UR_{n}_Total") or 0.0) * n
+        for n in range(1, 6)
+    ) + (_scalar(g35, sa2_code, "Num_Psns_UR_6mo_Total") or 0.0) * 6
+    return round(persons_sum / total, 2)
 
 
-def _compute_owners_pct(g37: pd.DataFrame, sa2_code: str) -> float | None:
-    """% of occupied dwellings that are owned (outright or with mortgage)."""
-    total = _scalar(g37, sa2_code, "Total_Total")
-    if not total:
-        return None
-    owned = (
-        (_scalar(g37, sa2_code, "O_OR_Total") or 0.0)
+def _compute_dwelling_structure(
+    g36: pd.DataFrame, sa2_code: str
+) -> tuple[float | None, float | None]:
+    """(separate_house_pct, flat_apartment_pct) as % of occupied private dwellings."""
+    total = _scalar(g36, sa2_code, "OPDs_Tot_OPDs_Dwellings")
+    return (
+        _pct(_scalar(g36, sa2_code, "OPDs_Separate_house_Dwellings"), total),
+        _pct(_scalar(g36, sa2_code, "OPDs_Flt_apart_Tot_Dwgs"), total),
+    )
+
+
+def _compute_tenure(
+    g37: pd.DataFrame, sa2_code: str
+) -> tuple[float | None, float | None, float | None]:
+    """(renters_pct, owners_pct, social_housing_pct) from G37."""
+    total   = _scalar(g37, sa2_code, "Total_Total")
+    renters = _scalar(g37, sa2_code, "R_Tot_Total") or 0.0
+    owned   = (
+        (_scalar(g37, sa2_code, "O_OR_Total")  or 0.0)
         + (_scalar(g37, sa2_code, "O_MTG_Total") or 0.0)
     )
-    return min(owned / total * 100.0, 100.0)
+    social  = (
+        (_scalar(g37, sa2_code, "R_ST_h_auth_Total") or 0.0)
+        + (_scalar(g37, sa2_code, "R_Com_Hp_Total")  or 0.0)
+    )
+    return _pct(renters, total), _pct(owned, total), _pct(social, total)
 
 
-def _compute_industry_profile(g53: pd.DataFrame, sa2_code: str) -> dict[str, float]:
-    """ANZSIC industry proportions keyed by scoring bucket, summing to ≤ 1.0."""
-    total = _scalar(g53, sa2_code, _INDUSTRY_TOTAL_COL)
-    if not total or total <= 0:
-        return {}
+def _compute_high_mortgage_stress_pct(g38: pd.DataFrame, sa2_code: str) -> float | None:
+    """% of mortgaged dwellings paying ≥ $3 000/month."""
+    high = (
+        (_scalar(g38, sa2_code, "M_3000_3999_Tot") or 0.0)
+        + (_scalar(g38, sa2_code, "M_4000_over_Tot") or 0.0)
+    )
+    return _pct(high, _scalar(g38, sa2_code, "Tot_Tot"))
 
-    buckets: dict[str, float] = {}
-    all_col_mappings = _INDUSTRY_COLS_G53B + _INDUSTRY_COLS_G53C
-    for col, bucket in all_col_mappings:
-        if col not in g53.columns:
-            continue
-        count = _scalar(g53, sa2_code, col) or 0.0
-        buckets[bucket] = buckets.get(bucket, 0.0) + count / total
 
-    return {k: round(v, 4) for k, v in buckets.items()}
+def _compute_high_rent_stress_pct(g40: pd.DataFrame, sa2_code: str) -> float | None:
+    """% of rented dwellings paying ≥ $650/week."""
+    high_cols = ["R_650_749_Tot", "R_750_849_Tot", "R_850_949_Tot", "R_950_over_Tot"]
+    high = sum(_scalar(g40, sa2_code, c) or 0.0 for c in high_cols)
+    return _pct(high, _scalar(g40, sa2_code, "Tot_Tot"))
 
+
+def _compute_one_bedroom_pct(g41: pd.DataFrame, sa2_code: str) -> float | None:
+    """% of dwellings with exactly 1 bedroom."""
+    return _pct(
+        _scalar(g41, sa2_code, "Total_NofB_1"),
+        _scalar(g41, sa2_code, "Total_Total"),
+    )
+
+
+def _compute_moved_in_1yr_pct(g44: pd.DataFrame, sa2_code: str) -> float | None:
+    """% who lived in a different SA2 or overseas one year before census night."""
+    from_diff_sa2 = _scalar(g44, sa2_code, "Dif_Us_ad_1_ago_Dif_SA2_Tot_P") or 0.0
+    from_os       = _scalar(g44, sa2_code, "Difnt_Usl_add_1_yr_ago_OS_P")   or 0.0
+    return _pct(from_diff_sa2 + from_os, _scalar(g44, sa2_code, "Tot_P"))
+
+
+def _compute_moved_in_5yr_pct(g45: pd.DataFrame, sa2_code: str) -> float | None:
+    """% who lived in a different SA2 or overseas five years before census night."""
+    from_diff_sa2 = _scalar(g45, sa2_code, "Dif_Us_ad_5_ago_Dif_SA2_Tot_P") or 0.0
+    from_os       = _scalar(g45, sa2_code, "Difnt_Usl_add_5_yr_ago_OS_P")   or 0.0
+    return _pct(from_diff_sa2 + from_os, _scalar(g45, sa2_code, "Tot_P"))
+
+
+def _compute_unemployment_pct(g46b: pd.DataFrame, sa2_code: str) -> float | None:
+    """Unemployment rate (unemployed / total labour force)."""
+    return _pct(
+        _scalar(g46b, sa2_code, "P_Tot_Unemp_Tot"),
+        _scalar(g46b, sa2_code, "P_Tot_LF_Tot"),
+    )
+
+
+def _compute_uni_degree_pct(g49b: pd.DataFrame, sa2_code: str) -> float | None:
+    """% of population with a bachelor degree or higher (postgrad + grad dip + bach)."""
+    pgrad    = _scalar(g49b, sa2_code, "P_PGrad_Deg_Total")              or 0.0
+    grad_dip = _scalar(g49b, sa2_code, "P_GradDip_and_GradCert_Total")   or 0.0
+    bach     = _scalar(g49b, sa2_code, "P_BachDeg_Total")                or 0.0
+    return _pct(pgrad + grad_dip + bach, _scalar(g49b, sa2_code, "P_Tot_Total"))
+
+
+def _compute_professionals_managers_pct(
+    g60b: pd.DataFrame | None, sa2_code: str
+) -> float | None:
+    """% of employed persons who are managers or professionals."""
+    if g60b is None:
+        return None
+    managers      = _scalar(g60b, sa2_code, "P_Tot_Managers")      or 0.0
+    professionals = _scalar(g60b, sa2_code, "P_Tot_Professionals") or 0.0
+    return _pct(managers + professionals, _scalar(g60b, sa2_code, "P_Tot_Tot"))
+
+
+def _compute_commute(
+    g62: pd.DataFrame, sa2_code: str
+) -> tuple[float | None, float | None, float | None]:
+    """(pt_commute_pct, car_commute_pct, work_from_home_pct) from single-mode travel."""
+    total    = _scalar(g62, sa2_code, "Tot_P")
+    pt_cols  = [
+        "One_method_Train_P", "One_method_Bus_P",
+        "One_method_Ferry_P", "One_met_Tram_or_lt_rail_P",
+    ]
+    car_cols = ["One_method_Car_as_driver_P", "One_method_Car_as_passenger_P"]
+    pt  = sum(_scalar(g62, sa2_code, c) or 0.0 for c in pt_cols)
+    car = sum(_scalar(g62, sa2_code, c) or 0.0 for c in car_cols)
+    wfh = _scalar(g62, sa2_code, "Worked_home_P") or 0.0
+    return _pct(pt, total), _pct(car, total), _pct(wfh, total)
+
+
+# ---------------------------------------------------------------------------
+# Main row builder
+# ---------------------------------------------------------------------------
 
 def _build_metrics(
     sa2_code: str,
     year: int,
-    g01: pd.DataFrame,
+    *,
     g02: pd.DataFrame,
+    g09p: pd.DataFrame | None,
+    g29: pd.DataFrame,
+    g34: pd.DataFrame,
+    g35: pd.DataFrame,
+    g36: pd.DataFrame,
     g37: pd.DataFrame,
-    g53: pd.DataFrame,
+    g38: pd.DataFrame,
+    g40: pd.DataFrame,
+    g41: pd.DataFrame,
+    g44: pd.DataFrame,
+    g45: pd.DataFrame,
+    g46b: pd.DataFrame,
+    g49b: pd.DataFrame,
+    g60b: pd.DataFrame | None,
+    g62: pd.DataFrame,
 ) -> ABSCEntensMetrics:
-    """Assemble an ABSCEntensMetrics row from the four source DataFrames."""
-    population_raw = _scalar(g01, sa2_code, "Tot_P_P")
+    """Assemble an ABSCEntensMetrics row from the target DataFrames."""
+
+    # Population: G44 Tot_P ≈ total usual-resident population
+    population_raw = _scalar(g44, sa2_code, "Tot_P")
     population = int(population_raw) if population_raw is not None else None
 
-    median_age = _scalar(g02, sa2_code, "Median_age_persons")
+    # G02 — medians
+    median_age             = _scalar(g02, sa2_code, "Median_age_persons")
+    weekly_income          = _scalar(g02, sa2_code, "Median_tot_prsnl_inc_weekly")
+    median_income          = int(weekly_income * 52) if weekly_income is not None else None
+    median_mortgage_monthly = _scalar(g02, sa2_code, "Median_mortgage_repay_monthly")
+    median_rent_weekly     = _scalar(g02, sa2_code, "Median_rent_weekly")
 
-    # Weekly personal income × 52 → annual
-    weekly_income = _scalar(g02, sa2_code, "Median_tot_prsnl_inc_weekly")
-    median_income = int(weekly_income * 52) if weekly_income is not None else None
+    # G09 — overseas born
+    overseas_born_pct = _compute_overseas_born_pct(g09p, sa2_code)
+
+    # G29 — family composition
+    families_with_children_pct = _compute_families_with_children_pct(g29, sa2_code)
+
+    # G34 — car ownership
+    zero_car_dwellings_pct = _compute_zero_car_dwellings_pct(g34, sa2_code)
+
+    # G35 — household size
+    avg_household_size = _compute_avg_household_size(g35, sa2_code)
+
+    # G36 — dwelling structure
+    separate_house_pct, flat_apartment_pct = _compute_dwelling_structure(g36, sa2_code)
+
+    # G37 — tenure
+    renters_pct, owners_pct, social_housing_pct = _compute_tenure(g37, sa2_code)
+
+    # G38 — mortgage stress
+    high_mortgage_stress_pct = _compute_high_mortgage_stress_pct(g38, sa2_code)
+
+    # G40 — rent stress
+    high_rent_stress_pct = _compute_high_rent_stress_pct(g40, sa2_code)
+
+    # G41 — bedrooms
+    one_bedroom_pct = _compute_one_bedroom_pct(g41, sa2_code)
+
+    # G44 / G45 — residential mobility
+    moved_in_1yr_pct = _compute_moved_in_1yr_pct(g44, sa2_code)
+    moved_in_5yr_pct = _compute_moved_in_5yr_pct(g45, sa2_code)
+
+    # G46B — labour force
+    unemployment_pct = _compute_unemployment_pct(g46b, sa2_code)
+
+    # G49B — education
+    uni_degree_pct = _compute_uni_degree_pct(g49b, sa2_code)
+
+    # G60B — occupation (optional table)
+    professionals_managers_pct = _compute_professionals_managers_pct(g60b, sa2_code)
+
+    # G62 — commute
+    pt_commute_pct, car_commute_pct, work_from_home_pct = _compute_commute(g62, sa2_code)
 
     return ABSCEntensMetrics(
         sa2_code=sa2_code,
         year=year,
+        # Demographics
         population=population,
-        median_income=median_income,
         median_age=median_age,
-        renters_pct=_compute_renters_pct(g37, sa2_code),
-        owners_pct=_compute_owners_pct(g37, sa2_code),
-        young_population_pct=_compute_young_pct(g01, sa2_code),
-        industry_profile=_compute_industry_profile(g53, sa2_code),
-        pop_growth_5yr=None,  # Requires 2016 DataPack; populated by a second pass
+        median_income=median_income,
+        median_mortgage_monthly=median_mortgage_monthly,
+        median_rent_weekly=median_rent_weekly,
+        overseas_born_pct=overseas_born_pct,
+        families_with_children_pct=families_with_children_pct,
+        renters_pct=renters_pct,
+        owners_pct=owners_pct,
+        social_housing_pct=social_housing_pct,
+        # Property
+        avg_household_size=avg_household_size,
+        separate_house_pct=separate_house_pct,
+        flat_apartment_pct=flat_apartment_pct,
+        high_mortgage_stress_pct=high_mortgage_stress_pct,
+        high_rent_stress_pct=high_rent_stress_pct,
+        # Growth / Gentrification
+        moved_in_1yr_pct=moved_in_1yr_pct,
+        moved_in_5yr_pct=moved_in_5yr_pct,
+        uni_degree_pct=uni_degree_pct,
+        professionals_managers_pct=professionals_managers_pct,
+        # Lifestyle
+        zero_car_dwellings_pct=zero_car_dwellings_pct,
+        pt_commute_pct=pt_commute_pct,
+        car_commute_pct=car_commute_pct,
+        work_from_home_pct=work_from_home_pct,
+        # Risk
+        one_bedroom_pct=one_bedroom_pct,
+        unemployment_pct=unemployment_pct,
+        # Legacy fields — retained in schema but no longer computed here
+        industry_profile=None,
+        pop_growth_5yr=None,
+        young_population_pct=None,
     )
