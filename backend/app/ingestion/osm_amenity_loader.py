@@ -155,6 +155,21 @@ def load_osm_amenities(
     total = len(sa2_rows)
     logger.info("Processing %d SA2s ...", total)
 
+    # Pre-load already-completed SA2 codes so a re-run can resume from where
+    # it left off rather than reprocessing everything from scratch.
+    all_done: set[str] = {
+        row[0]
+        for row in db.query(ABSCEntensMetrics.sa2_code)
+                      .filter(
+                          ABSCEntensMetrics.year == year,
+                          ABSCEntensMetrics.amenity_score.isnot(None),
+                      )
+                      .all()
+    }
+    done = {code for code, _, _ in sa2_rows if code in all_done}
+    if done:
+        logger.info("Resuming — skipping %d already-completed SA2s", len(done))
+
     # Windows Python installations often lack system CA certs; suppress the
     # warning and use verify=False for this local ingestion-only script.
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -167,6 +182,9 @@ def load_osm_amenities(
 
     for i, (sa2_code, sa2_name, geojson_str) in enumerate(sa2_rows, 1):
         report.sa2s_processed += 1
+
+        if sa2_code in done:
+            continue
 
         if geojson_str is None:
             report.sa2s_no_geom += 1
@@ -236,7 +254,7 @@ def load_osm_amenities(
 
         if i % 25 == 0:
             logger.info("  %d / %d  (%s ...)", i, total, sa2_name[:30])
-            db.flush()
+            db.commit()
 
         time.sleep(request_delay)
 
@@ -287,6 +305,11 @@ def _fetch_overpass(
         except requests.exceptions.RequestException as exc:
             logger.warning("Overpass request error bbox %s: %s", bbox_str, exc)
             report.api_errors += 1
+            # PermissionError(13) = OS/firewall blocked the socket.  Back off
+            # so the firewall can reset before the next request.
+            if "PermissionError" in str(exc) or "Permission denied" in str(exc):
+                logger.warning("OS blocked connection — sleeping 60s to let firewall reset ...")
+                time.sleep(60)
             return None
 
         if resp.status_code == 200:
