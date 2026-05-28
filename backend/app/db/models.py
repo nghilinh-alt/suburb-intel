@@ -90,6 +90,22 @@ class ABSCEntensMetrics(Base):
     pt_stop_bus   = Column(Integer, nullable=True, comment="Count of unique bus stops within SA2 boundary (GTFS route_type 3)")
     pt_stop_ferry = Column(Integer, nullable=True, comment="Count of unique ferry stops within SA2 boundary (GTFS route_type 4)")
 
+    # ── OSM amenity counts (Overpass API) ───────────────────────────────────
+    osm_cafes        = Column(Integer, nullable=True, comment="OSM cafes within SA2 polygon")
+    osm_restaurants  = Column(Integer, nullable=True, comment="OSM restaurants + fast food within SA2 polygon")
+    osm_supermarkets = Column(Integer, nullable=True, comment="OSM supermarkets + convenience stores within SA2 polygon")
+    osm_parks        = Column(Integer, nullable=True, comment="OSM parks (nodes, ways, relations) within SA2 polygon")
+    osm_gyms         = Column(Integer, nullable=True, comment="OSM fitness centres / sports centres within SA2 polygon")
+    osm_hospitals    = Column(Integer, nullable=True, comment="OSM hospitals + clinics + doctors within SA2 polygon")
+    osm_pharmacies   = Column(Integer, nullable=True, comment="OSM pharmacies within SA2 polygon")
+    amenity_score    = Column(Float,   nullable=True, comment="Weighted liveability score 0–10 from OSM amenity counts")
+
+    # ── Property market (Domain API) ─────────────────────────────────────────
+    domain_median_house_price = Column(Float,   nullable=True, comment="Median house sold price $ — most recent 12-month period (Domain API)")
+    domain_median_unit_price  = Column(Float,   nullable=True, comment="Median unit/apartment sold price $ — most recent 12-month period (Domain API)")
+    domain_days_on_market     = Column(Float,   nullable=True, comment="Median days on market for houses (Domain API)")
+    domain_clearance_rate     = Column(Float,   nullable=True, comment="Auction clearance rate 0–1 for houses; null if < 10 auctions (Domain API)")
+
     # ── Legacy / cross-census fields ─────────────────────────────────────────
     industry_profile = Column(JSON, nullable=True, comment="DEPRECATED – industry bucket proportions (G53 not in scope)")
     pop_growth_5yr = Column(Float, nullable=True, comment="Population growth % between 2016 and 2021 Census")
