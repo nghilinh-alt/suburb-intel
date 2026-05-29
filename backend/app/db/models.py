@@ -122,14 +122,18 @@ class ABSCEntensMetrics(Base):
 
 class InfrastructureProject(Base):
     __tablename__ = "infrastructure_projects"
-    
+
     project_id = Column(Text, primary_key=True)
-    name = Column(Text, nullable=False)
-    type = Column(Text, nullable=False)
-    value_aud = Column(Integer, nullable=True)
-    status = Column(Text, nullable=False)
-    lat = Column(Float, nullable=True)
-    lon = Column(Float, nullable=True)
+    name       = Column(Text, nullable=False)
+    type       = Column(Text, nullable=False)
+    value_aud  = Column(Integer, nullable=True)
+    status     = Column(Text, nullable=False)
+    lat        = Column(Float, nullable=True)
+    lon        = Column(Float, nullable=True)
+    # IA-specific fields (added via migration if DB already exists)
+    state      = Column(Text, nullable=True, comment="State codes from IA PDF, e.g. 'NSW' or 'VIC, NSW'")
+    timing     = Column(Text, nullable=True, comment="IA timing category, e.g. '2-4 year pipeline'")
+    source     = Column(Text, nullable=True, comment="Data source, e.g. 'Infrastructure Australia Priority List 2026'")
 
 
 class SA2ProjectLink(Base):
