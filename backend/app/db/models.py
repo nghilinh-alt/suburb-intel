@@ -90,21 +90,44 @@ class ABSCEntensMetrics(Base):
     pt_stop_bus   = Column(Integer, nullable=True, comment="Count of unique bus stops within SA2 boundary (GTFS route_type 3)")
     pt_stop_ferry = Column(Integer, nullable=True, comment="Count of unique ferry stops within SA2 boundary (GTFS route_type 4)")
 
-    # ── OSM amenity counts (Overpass API) ───────────────────────────────────
-    osm_cafes        = Column(Integer, nullable=True, comment="OSM cafes within SA2 polygon")
-    osm_restaurants  = Column(Integer, nullable=True, comment="OSM restaurants + fast food within SA2 polygon")
-    osm_supermarkets = Column(Integer, nullable=True, comment="OSM supermarkets + convenience stores within SA2 polygon")
-    osm_parks        = Column(Integer, nullable=True, comment="OSM parks (nodes, ways, relations) within SA2 polygon")
-    osm_gyms         = Column(Integer, nullable=True, comment="OSM fitness centres / sports centres within SA2 polygon")
-    osm_hospitals    = Column(Integer, nullable=True, comment="OSM hospitals + clinics + doctors within SA2 polygon")
-    osm_pharmacies   = Column(Integer, nullable=True, comment="OSM pharmacies within SA2 polygon")
-    amenity_score    = Column(Float,   nullable=True, comment="Weighted liveability score 0–10 from OSM amenity counts")
+    # ── Amenity counts (Overture Maps) ──────────────────────────────────────
+    osm_cafes        = Column(Integer, nullable=True, comment="Cafes + coffee shops (excludes bakeries)")
+    osm_bakeries     = Column(Integer, nullable=True, comment="Bakeries")
+    osm_restaurants  = Column(Integer, nullable=True, comment="Total sit-down restaurants (all cuisines, excludes fast food + cafes)")
+    osm_fast_food    = Column(Integer, nullable=True, comment="Fast food restaurants + burger/pizza chains")
+    osm_supermarkets = Column(Integer, nullable=True, comment="Supermarkets + grocery stores + convenience stores")
+    osm_parks        = Column(Integer, nullable=True, comment="Parks, reserves, playgrounds, beaches")
+    osm_gyms         = Column(Integer, nullable=True, comment="Gyms + yoga + pilates + sports centres")
+    osm_hospitals    = Column(Integer, nullable=True, comment="Hospitals + clinics + medical centres + GPs")
+    osm_pharmacies   = Column(Integer, nullable=True, comment="Pharmacies + drugstores")
+    osm_shopping_centres = Column(Integer, nullable=True, comment="Shopping malls + department stores")
+    # ── Restaurant cuisine breakdown (subsets of osm_restaurants) ───────────
+    osm_rest_chinese       = Column(Integer, nullable=True, comment="Chinese restaurants")
+    osm_rest_indian        = Column(Integer, nullable=True, comment="Indian restaurants")
+    osm_rest_thai          = Column(Integer, nullable=True, comment="Thai restaurants")
+    osm_rest_italian       = Column(Integer, nullable=True, comment="Italian + pizza restaurants")
+    osm_rest_japanese      = Column(Integer, nullable=True, comment="Japanese + sushi restaurants")
+    osm_rest_vietnamese    = Column(Integer, nullable=True, comment="Vietnamese restaurants")
+    osm_rest_korean        = Column(Integer, nullable=True, comment="Korean restaurants")
+    osm_rest_greek         = Column(Integer, nullable=True, comment="Greek + Mediterranean restaurants")
+    osm_rest_mexican       = Column(Integer, nullable=True, comment="Mexican restaurants")
+    osm_rest_middle_eastern = Column(Integer, nullable=True, comment="Middle Eastern restaurants")
+    osm_rest_seafood       = Column(Integer, nullable=True, comment="Seafood restaurants")
+    amenity_score    = Column(Float,   nullable=True, comment="Weighted liveability score 0–10")
 
     # ── Property market (Domain API) ─────────────────────────────────────────
     domain_median_house_price = Column(Float,   nullable=True, comment="Median house sold price $ — most recent 12-month period (Domain API)")
     domain_median_unit_price  = Column(Float,   nullable=True, comment="Median unit/apartment sold price $ — most recent 12-month period (Domain API)")
     domain_days_on_market     = Column(Float,   nullable=True, comment="Median days on market for houses (Domain API)")
     domain_clearance_rate     = Column(Float,   nullable=True, comment="Auction clearance rate 0–1 for houses; null if < 10 auctions (Domain API)")
+
+    # ── Building Approvals (ABS, FY2024-25) ──────────────────────────────────
+    building_approvals_1yr = Column(Integer, nullable=True, comment="New residential dwellings approved in last full financial year (ABS SA2 building approvals)")
+
+    # ── Population Projections (ABS, base 2022, series B) ────────────────────
+    pop_proj_2026 = Column(Integer, nullable=True, comment="ABS projected total population at 30 June 2026 (series B medium)")
+    pop_proj_2031 = Column(Integer, nullable=True, comment="ABS projected total population at 30 June 2031 (series B medium)")
+    pop_growth_proj_pct = Column(Float, nullable=True, comment="Projected population % change 2023→2031 (ABS series B)")
 
     # ── Legacy / cross-census fields ─────────────────────────────────────────
     industry_profile = Column(JSON, nullable=True, comment="DEPRECATED – industry bucket proportions (G53 not in scope)")
@@ -114,14 +137,24 @@ class ABSCEntensMetrics(Base):
 
 class InfrastructureProject(Base):
     __tablename__ = "infrastructure_projects"
-    
+
     project_id = Column(Text, primary_key=True)
-    name = Column(Text, nullable=False)
-    type = Column(Text, nullable=False)
-    value_aud = Column(Integer, nullable=True)
-    status = Column(Text, nullable=False)
-    lat = Column(Float, nullable=True)
-    lon = Column(Float, nullable=True)
+    name       = Column(Text, nullable=False)
+    type       = Column(Text, nullable=False)
+    value_aud  = Column(Integer, nullable=True)
+    status     = Column(Text, nullable=False)
+    lat        = Column(Float, nullable=True)
+    lon        = Column(Float, nullable=True)
+    # IA-specific fields (added via migration if DB already exists)
+    state      = Column(Text, nullable=True, comment="State codes, e.g. 'NSW' or 'VIC, NSW'")
+    timing     = Column(Text, nullable=True, comment="IA timing category OR '<start> to <end>' date string")
+    source     = Column(Text, nullable=True, comment="Data source label")
+    # iPAMS-specific fields (added via migration)
+    agc_aud       = Column(Integer, nullable=True, comment="Australian Government Commitment (AUD) from iPAMS")
+    sub_program   = Column(Text,    nullable=True, comment="iPAMS sub-program, e.g. 'Black Spot Projects'")
+    expected_start = Column(Text,   nullable=True, comment="Expected start date string from iPAMS")
+    expected_end   = Column(Text,   nullable=True, comment="Expected end date string from iPAMS")
+    project_url    = Column(Text,   nullable=True, comment="URL to project detail page")
 
 
 class SA2ProjectLink(Base):
