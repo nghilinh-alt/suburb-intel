@@ -85,8 +85,10 @@ def main() -> None:
 
     from app.db.models import Base
     from app.db.session import get_sync_session, sync_engine
+    from sqlalchemy import text
 
     Base.metadata.create_all(bind=sync_engine)
+    _migrate_columns(sync_engine, text)
 
     db = get_sync_session()
     try:
@@ -105,6 +107,33 @@ def main() -> None:
         sys.exit(1)
     finally:
         db.close()
+
+
+def _migrate_columns(engine, text) -> None:
+    """Add new detailed amenity columns to abs_census_metrics if absent."""
+    new_cols = [
+        "ALTER TABLE abs_census_metrics ADD COLUMN osm_bakeries INTEGER",
+        "ALTER TABLE abs_census_metrics ADD COLUMN osm_fast_food INTEGER",
+        "ALTER TABLE abs_census_metrics ADD COLUMN osm_shopping_centres INTEGER",
+        "ALTER TABLE abs_census_metrics ADD COLUMN osm_rest_chinese INTEGER",
+        "ALTER TABLE abs_census_metrics ADD COLUMN osm_rest_indian INTEGER",
+        "ALTER TABLE abs_census_metrics ADD COLUMN osm_rest_thai INTEGER",
+        "ALTER TABLE abs_census_metrics ADD COLUMN osm_rest_italian INTEGER",
+        "ALTER TABLE abs_census_metrics ADD COLUMN osm_rest_japanese INTEGER",
+        "ALTER TABLE abs_census_metrics ADD COLUMN osm_rest_vietnamese INTEGER",
+        "ALTER TABLE abs_census_metrics ADD COLUMN osm_rest_korean INTEGER",
+        "ALTER TABLE abs_census_metrics ADD COLUMN osm_rest_greek INTEGER",
+        "ALTER TABLE abs_census_metrics ADD COLUMN osm_rest_mexican INTEGER",
+        "ALTER TABLE abs_census_metrics ADD COLUMN osm_rest_middle_eastern INTEGER",
+        "ALTER TABLE abs_census_metrics ADD COLUMN osm_rest_seafood INTEGER",
+    ]
+    with engine.connect() as conn:
+        for stmt in new_cols:
+            try:
+                conn.execute(text(stmt))
+                conn.commit()
+            except Exception:
+                pass  # column already exists
 
 
 if __name__ == "__main__":

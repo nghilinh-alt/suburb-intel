@@ -18,10 +18,18 @@ Workflow
 
 Columns written to abs_census_metrics
 ──────────────────────────────────────
-osm_cafes, osm_restaurants, osm_supermarkets, osm_parks,
-osm_gyms, osm_hospitals, osm_pharmacies, amenity_score
+Core counts:
+  osm_cafes, osm_bakeries, osm_restaurants, osm_fast_food,
+  osm_supermarkets, osm_parks, osm_gyms, osm_hospitals,
+  osm_pharmacies, osm_shopping_centres
 
-(Same columns as the OSM loader — this is a drop-in replacement.)
+Cuisine breakdown (subsets of osm_restaurants):
+  osm_rest_chinese, osm_rest_indian, osm_rest_thai, osm_rest_italian,
+  osm_rest_japanese, osm_rest_vietnamese, osm_rest_korean, osm_rest_greek,
+  osm_rest_mexican, osm_rest_middle_eastern, osm_rest_seafood
+
+Derived:
+  amenity_score  (0–10 weighted liveability score)
 
 Usage (CLI):
     cd backend
@@ -67,104 +75,136 @@ _AU_BBOX = (112.0, -44.5, 155.0, -9.0)   # west, south, east, north
 # Category mapping
 # ---------------------------------------------------------------------------
 
-# Overture categories.primary value → our amenity category name.
-# Overture uses snake_case strings from their published taxonomy.
+# Overture categories.primary → internal amenity category name.
+# Cuisine categories map to both their cuisine column AND count toward
+# the osm_restaurants total (see aggregation logic below).
 _OVERTURE_TO_CAT: dict[str, str] = {
-    # ── Cafes ────────────────────────────────────────────────────────────
-    "coffee_shop":                          "cafe",
-    "cafe":                                 "cafe",
-    "tea_house":                            "cafe",
-    "bakery":                               "cafe",
-    # ── Restaurants ──────────────────────────────────────────────────────
-    "restaurant":                           "restaurant",
-    "fast_food_restaurant":                 "restaurant",
-    "casual_eatery":                        "restaurant",
-    "food_court":                           "restaurant",
-    "pizza_place":                          "restaurant",
-    "sandwich_spot":                        "restaurant",
-    "burger_joint":                         "restaurant",
-    "seafood_restaurant":                   "restaurant",
-    "sushi_restaurant":                     "restaurant",
-    "noodle_house":                         "restaurant",
-    "chinese_restaurant":                   "restaurant",
-    "thai_restaurant":                      "restaurant",
-    "indian_restaurant":                    "restaurant",
-    "italian_restaurant":                   "restaurant",
-    "greek_restaurant":                     "restaurant",
-    "japanese_restaurant":                  "restaurant",
-    "mexican_restaurant":                   "restaurant",
-    "bbq_joint":                            "restaurant",
-    "steakhouse":                           "restaurant",
-    "vegetarian_and_vegan_restaurant":      "restaurant",
-    "middle_eastern_restaurant":            "restaurant",
-    "vietnamese_restaurant":                "restaurant",
-    "korean_restaurant":                    "restaurant",
-    "tapas_restaurant":                     "restaurant",
-    "wings_joint":                          "restaurant",
+    # ── Cafes (coffee shops only — NOT bakeries) ─────────────────────────
+    "coffee_shop":                     "cafe",
+    "cafe":                            "cafe",
+    "tea_house":                       "cafe",
+    # ── Bakeries (separate from cafes) ──────────────────────────────────
+    "bakery":                          "bakery",
+    # ── Generic / unclassified restaurants ──────────────────────────────
+    "restaurant":                      "restaurant",
+    "casual_eatery":                   "restaurant",
+    "food_court":                      "restaurant",
+    "steakhouse":                      "restaurant",
+    "noodle_house":                    "restaurant",
+    "bbq_joint":                       "restaurant",
+    "sandwich_spot":                   "restaurant",
+    "wings_joint":                     "restaurant",
+    "tapas_restaurant":                "restaurant",
+    "vegetarian_and_vegan_restaurant": "restaurant",
+    # ── Fast food (separate from sit-down) ───────────────────────────────
+    "fast_food_restaurant":            "fast_food",
+    "burger_joint":                    "fast_food",
+    "pizza_place":                     "fast_food",
+    # ── Cuisine-specific restaurants ─────────────────────────────────────
+    "chinese_restaurant":              "rest_chinese",
+    "indian_restaurant":               "rest_indian",
+    "thai_restaurant":                 "rest_thai",
+    "italian_restaurant":              "rest_italian",
+    "japanese_restaurant":             "rest_japanese",
+    "sushi_restaurant":                "rest_japanese",
+    "vietnamese_restaurant":           "rest_vietnamese",
+    "korean_restaurant":               "rest_korean",
+    "greek_restaurant":                "rest_greek",
+    "mexican_restaurant":              "rest_mexican",
+    "middle_eastern_restaurant":       "rest_middle_eastern",
+    "seafood_restaurant":              "rest_seafood",
     # ── Supermarkets / grocers ───────────────────────────────────────────
-    "supermarket":                          "supermarket",
-    "grocery_store":                        "supermarket",
-    "convenience_store":                    "supermarket",
+    "supermarket":                     "supermarket",
+    "grocery_store":                   "supermarket",
+    "convenience_store":               "supermarket",
     # ── Parks / outdoors ─────────────────────────────────────────────────
-    "park":                                 "park",
-    "national_park":                        "park",
-    "nature_preserve":                      "park",
-    "recreation_area":                      "park",
-    "botanical_garden":                     "park",
-    "playground":                           "park",
-    "beach":                                "park",
-    "nature_reserve":                       "park",
-    "dog_park":                             "park",
-    "skate_park":                           "park",
+    "park":                            "park",
+    "national_park":                   "park",
+    "nature_preserve":                 "park",
+    "recreation_area":                 "park",
+    "botanical_garden":                "park",
+    "playground":                      "park",
+    "beach":                           "park",
+    "nature_reserve":                  "park",
+    "dog_park":                        "park",
+    "skate_park":                      "park",
     # ── Gyms / fitness ───────────────────────────────────────────────────
-    "gym":                                  "gym",
-    "fitness_center":                       "gym",
-    "health_club":                          "gym",
-    "yoga_studio":                          "gym",
-    "pilates_studio":                       "gym",
-    "sports_complex":                       "gym",
-    "recreation_center":                    "gym",
-    "martial_arts_school":                  "gym",
-    "boxing_gym":                           "gym",
-    "crossfit_gym":                         "gym",
+    "gym":                             "gym",
+    "fitness_center":                  "gym",
+    "health_club":                     "gym",
+    "yoga_studio":                     "gym",
+    "pilates_studio":                  "gym",
+    "sports_complex":                  "gym",
+    "recreation_center":               "gym",
+    "martial_arts_school":             "gym",
+    "boxing_gym":                      "gym",
+    "crossfit_gym":                    "gym",
     # ── Hospitals / medical ──────────────────────────────────────────────
-    "hospital":                             "hospital",
-    "urgent_care_center":                   "hospital",
-    "emergency_room":                       "hospital",
-    "medical_center":                       "hospital",
-    "clinic":                               "hospital",
-    "doctors_office":                       "hospital",
-    "medical_clinic":                       "hospital",
-    "health_clinic":                        "hospital",
-    "general_practitioner":                 "hospital",
-    "medical_office":                       "hospital",
+    "hospital":                        "hospital",
+    "urgent_care_center":              "hospital",
+    "emergency_room":                  "hospital",
+    "medical_center":                  "hospital",
+    "clinic":                          "hospital",
+    "doctors_office":                  "hospital",
+    "medical_clinic":                  "hospital",
+    "health_clinic":                   "hospital",
+    "general_practitioner":            "hospital",
+    "medical_office":                  "hospital",
     # ── Pharmacies ───────────────────────────────────────────────────────
-    "pharmacy":                             "pharmacy",
-    "drugstore":                            "pharmacy",
+    "pharmacy":                        "pharmacy",
+    "drugstore":                       "pharmacy",
+    # ── Shopping centres ─────────────────────────────────────────────────
+    "shopping_mall":                   "shopping_centre",
+    "department_store":                "shopping_centre",
 }
 
-# Our category → DB column
+# Internal category → DB column on abs_census_metrics
 _CAT_COLUMN: dict[str, str] = {
-    "cafe":        "osm_cafes",
-    "restaurant":  "osm_restaurants",
-    "supermarket": "osm_supermarkets",
-    "park":        "osm_parks",
-    "gym":         "osm_gyms",
-    "hospital":    "osm_hospitals",
-    "pharmacy":    "osm_pharmacies",
+    "cafe":              "osm_cafes",
+    "bakery":            "osm_bakeries",
+    "restaurant":        "osm_restaurants",   # generic; total computed separately
+    "fast_food":         "osm_fast_food",
+    "supermarket":       "osm_supermarkets",
+    "park":              "osm_parks",
+    "gym":               "osm_gyms",
+    "hospital":          "osm_hospitals",
+    "pharmacy":          "osm_pharmacies",
+    "shopping_centre":   "osm_shopping_centres",
+    # Cuisine breakdown
+    "rest_chinese":         "osm_rest_chinese",
+    "rest_indian":          "osm_rest_indian",
+    "rest_thai":            "osm_rest_thai",
+    "rest_italian":         "osm_rest_italian",
+    "rest_japanese":        "osm_rest_japanese",
+    "rest_vietnamese":      "osm_rest_vietnamese",
+    "rest_korean":          "osm_rest_korean",
+    "rest_greek":           "osm_rest_greek",
+    "rest_mexican":         "osm_rest_mexican",
+    "rest_middle_eastern":  "osm_rest_middle_eastern",
+    "rest_seafood":         "osm_rest_seafood",
 }
 
-# Amenity score weights and caps (identical to OSM loader)
+# Categories that roll up into osm_restaurants (generic + all cuisines)
+_RESTAURANT_CATS: frozenset[str] = frozenset({
+    "restaurant",
+    "rest_chinese", "rest_indian", "rest_thai", "rest_italian",
+    "rest_japanese", "rest_vietnamese", "rest_korean", "rest_greek",
+    "rest_mexican", "rest_middle_eastern", "rest_seafood",
+})
+
+# Amenity score weights and caps
+# osm_restaurants = total sit-down dining, used for the core score
 _SCORE_PARAMS: dict[str, tuple[float, int]] = {
-    "cafe":        (8.0,  30),
-    "restaurant":  (7.0,  30),
-    "supermarket": (9.0,   8),
-    "park":        (8.5,   5),
-    "gym":         (7.0,   5),
-    "hospital":    (9.5,   3),
-    "pharmacy":    (8.0,   5),
+    "cafe":             (8.0,  30),
+    "restaurant":       (7.0,  50),   # total sit-down; higher cap for dense CBDs
+    "supermarket":      (9.0,   8),
+    "park":             (8.5,   5),
+    "gym":              (7.0,   5),
+    "hospital":         (9.5,   3),
+    "pharmacy":         (8.0,   5),
+    "shopping_centre":  (6.5,   3),
 }
-_MAX_SCORE = sum(w for w, _ in _SCORE_PARAMS.values())   # 57.0
+_MAX_SCORE = sum(w for w, _ in _SCORE_PARAMS.values())   # 63.5
 
 
 # ---------------------------------------------------------------------------
@@ -294,14 +334,14 @@ def load_overture_amenities(
 
     # --- Aggregate counts ------------------------------------------------
     matched = joined.dropna(subset=["sa2_code"]).copy()
-    counts: dict[str, dict[str, int]] = {}
+    # cat_counts[sa2_code][internal_cat] = count
+    cat_counts: dict[str, dict[str, int]] = {}
     for (sa2, cat), n in matched.groupby(["sa2_code", "amenity_cat"]).size().items():
-        col = _CAT_COLUMN.get(cat)
-        if col:
-            counts.setdefault(str(sa2), {})[col] = int(n)
+        if cat in _CAT_COLUMN:
+            cat_counts.setdefault(str(sa2), {})[cat] = int(n)
 
     # --- Upsert ----------------------------------------------------------
-    logger.info("Upserting counts for %d SA2s ...", len(counts))
+    logger.info("Upserting counts for %d SA2s ...", len(cat_counts))
     all_sa2s = {row[0] for row in db.query(SA2Region.sa2_code).all()} \
         if not state_filter else \
         {row[0] for row in db.query(SA2Region.sa2_code)
@@ -313,17 +353,25 @@ def load_overture_amenities(
             report.sa2s_no_row += 1
             continue
 
-        col_counts = counts.get(sa2_code, {})
+        cats = cat_counts.get(sa2_code, {})
 
-        # Zero out all columns first, then set matched ones
-        for col in _CAT_COLUMN.values():
-            setattr(metrics, col, col_counts.get(col, 0))
+        # Write every individual category column (zero if absent)
+        for cat, col in _CAT_COLUMN.items():
+            setattr(metrics, col, cats.get(cat, 0))
 
-        # Compute amenity score
+        # osm_restaurants = generic + all cuisine sub-categories combined
+        metrics.osm_restaurants = sum(
+            cats.get(c, 0) for c in _RESTAURANT_CATS
+        )
+
+        # Amenity score — uses osm_restaurants total, not individual cuisines
         score = 0.0
-        for cat, (weight, cap) in _SCORE_PARAMS.items():
-            col = _CAT_COLUMN[cat]
-            count = col_counts.get(col, 0)
+        for score_cat, (weight, cap) in _SCORE_PARAMS.items():
+            if score_cat == "restaurant":
+                count = metrics.osm_restaurants
+            else:
+                col = _CAT_COLUMN.get(score_cat)
+                count = cats.get(score_cat, 0) if col else 0
             score += weight * min(count / cap, 1.0)
         metrics.amenity_score = round((score / _MAX_SCORE) * 10, 3)
         report.sa2s_updated += 1
