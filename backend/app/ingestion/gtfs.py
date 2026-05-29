@@ -41,6 +41,12 @@ def main() -> None:
         default=None,
         help="Restrict to SA2s in this state (e.g. VIC, NSW). Recommended for state-specific feeds.",
     )
+    parser.add_argument(
+        "--no-reset",
+        action="store_true",
+        help="Skip nulling existing PT columns before loading. Use when appending a "
+             "supplementary regional feed on top of an already-loaded primary feed.",
+    )
     args = parser.parse_args()
 
     if not args.zip.exists():
@@ -56,8 +62,14 @@ def main() -> None:
     db = get_sync_session()
     try:
         state_label = f" (state={args.state})" if args.state else ""
-        print(f"Loading GTFS stops from {args.zip.name}{state_label} ...")
-        report = load_gtfs(args.zip, db, year=args.year, state_filter=args.state)
+        reset_label = " [no-reset]" if args.no_reset else ""
+        print(f"Loading GTFS stops from {args.zip.name}{state_label}{reset_label} ...")
+        report = load_gtfs(
+            args.zip, db,
+            year=args.year,
+            state_filter=args.state,
+            reset_existing=not args.no_reset,
+        )
         print(f"Done: {report}")
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)

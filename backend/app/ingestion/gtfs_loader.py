@@ -107,22 +107,27 @@ def load_gtfs(
     *,
     year: int = 2021,
     state_filter: str | None = None,
+    reset_existing: bool = True,
 ) -> GTFSLoadReport:
     """Count PT stops per SA2 and upsert onto abs_census_metrics.
 
     Args:
-        gtfs_zip:     Path to the GTFS zip (PTV multi-feed or standard single-feed).
-        db:           Synchronous SQLAlchemy session.
-        year:         Census year whose metrics rows are updated (default 2021).
-        state_filter: If set (e.g. "VIC"), only load geometries for that state's SA2s,
-                      which also limits which rows get updated.  Recommended when running
-                      state-specific feeds so VIC data doesn't overwrite NSW data.
+        gtfs_zip:       Path to the GTFS zip (PTV multi-feed or standard single-feed).
+        db:             Synchronous SQLAlchemy session.
+        year:           Census year whose metrics rows are updated (default 2021).
+        state_filter:   If set (e.g. "VIC"), only load geometries for that state's SA2s,
+                        which also limits which rows get updated.  Recommended when running
+                        state-specific feeds so VIC data doesn't overwrite NSW data.
+        reset_existing: If True (default), NULL out all PT columns for the target state
+                        before loading.  Set to False when appending a supplementary
+                        regional feed on top of an already-loaded primary feed.
     """
     report = GTFSLoadReport()
 
     # Reset PT stop columns for all SA2s that will be (re)populated so that
     # a re-run doesn't leave stale counts from a previous incorrect run.
-    _reset_pt_columns(db, state_filter=state_filter, year=year)
+    if reset_existing:
+        _reset_pt_columns(db, state_filter=state_filter, year=year)
 
     logger.info("Extracting stops from %s ...", gtfs_zip.name)
     stops_df = _extract_stops_with_modes(gtfs_zip)
@@ -274,7 +279,8 @@ def _read_csv(
     usecols: list[str] | None = None,
 ) -> pd.DataFrame:
     with zf.open(name) as fh:
-        return pd.read_csv(fh, usecols=usecols, dtype=str, low_memory=False)
+        return pd.read_csv(fh, usecols=usecols, dtype=str, low_memory=False,
+                           skipinitialspace=True)
 
 
 # ---------------------------------------------------------------------------
