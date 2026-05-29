@@ -136,6 +136,7 @@ def load_osm_amenities(
     year: int = 2021,
     state_filter: str | None = None,
     request_delay: float = 1.5,
+    force: bool = False,
 ) -> OSMAmenityReport:
     """Fetch OSM amenity counts per SA2 and upsert onto abs_census_metrics.
 
@@ -144,6 +145,8 @@ def load_osm_amenities(
         year:           Census year whose metrics rows are updated.
         state_filter:   If set (e.g. "VIC"), only process SA2s in that state.
         request_delay:  Seconds to wait between Overpass requests.
+        force:          If True, reprocess all SA2s even if amenity_score is
+                        already set (bypasses resume logic).
     """
     report = OSMAmenityReport()
 
@@ -157,18 +160,23 @@ def load_osm_amenities(
 
     # Pre-load already-completed SA2 codes so a re-run can resume from where
     # it left off rather than reprocessing everything from scratch.
-    all_done: set[str] = {
-        row[0]
-        for row in db.query(ABSCEntensMetrics.sa2_code)
-                      .filter(
-                          ABSCEntensMetrics.year == year,
-                          ABSCEntensMetrics.amenity_score.isnot(None),
-                      )
-                      .all()
-    }
-    done = {code for code, _, _ in sa2_rows if code in all_done}
-    if done:
-        logger.info("Resuming — skipping %d already-completed SA2s", len(done))
+    # Bypassed when force=True (e.g. re-running after a query improvement).
+    if force:
+        done: set[str] = set()
+        logger.info("Force mode — reprocessing all %d SA2s", len(sa2_rows))
+    else:
+        all_done: set[str] = {
+            row[0]
+            for row in db.query(ABSCEntensMetrics.sa2_code)
+                          .filter(
+                              ABSCEntensMetrics.year == year,
+                              ABSCEntensMetrics.amenity_score.isnot(None),
+                          )
+                          .all()
+        }
+        done = {code for code, _, _ in sa2_rows if code in all_done}
+        if done:
+            logger.info("Resuming — skipping %d already-completed SA2s", len(done))
 
     # Windows Python installations often lack system CA certs; suppress the
     # warning and use verify=False for this local ingestion-only script.
@@ -283,9 +291,13 @@ def _fetch_overpass(
     query = (
         f"[out:json][timeout:{_TIMEOUT}];\n"
         "(\n"
+        # Nodes (point-mapped businesses)
         f'  node["amenity"~"cafe|restaurant|fast_food|hospital|clinic|doctors|pharmacy"]({bbox_str});\n'
         f'  node["shop"~"supermarket|convenience"]({bbox_str});\n'
         f'  node["leisure"~"park|fitness_centre|sports_centre"]({bbox_str});\n'
+        # Ways (building-polygon-mapped businesses — common in strip malls/centres)
+        f'  way["amenity"~"cafe|restaurant|fast_food|hospital|clinic|doctors|pharmacy"]({bbox_str});\n'
+        f'  way["shop"~"supermarket|convenience"]({bbox_str});\n'
         f'  way["leisure"~"park|fitness_centre|sports_centre"]({bbox_str});\n'
         f'  relation["leisure"="park"]({bbox_str});\n'
         ");\n"
