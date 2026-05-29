@@ -45,6 +45,11 @@ def main() -> None:
         default=1.5,
         help="Seconds between Overpass requests (default: 1.5). Lower = faster but less polite.",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Reprocess all SA2s, ignoring existing amenity_score values (bypasses resume logic).",
+    )
     args = parser.parse_args()
 
     from app.db.models import Base
@@ -62,6 +67,7 @@ def main() -> None:
             year=args.year,
             state_filter=args.state,
             request_delay=args.delay,
+            force=args.force,
         )
         print(f"Done: {report}")
     except Exception as exc:
