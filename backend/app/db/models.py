@@ -181,6 +181,45 @@ class SuburbScore(Base):
     __table_args__ = (Index("ix_suburb_scores_investment_desc", "investment_score"),)
 
 
+class School(Base):
+    __tablename__ = "schools"
+
+    acara_id    = Column(Text, primary_key=True, comment="ACARA SML ID — unique school identifier")
+    name        = Column(Text, nullable=False)
+    suburb      = Column(Text, nullable=True)
+    state       = Column(Text, nullable=True)
+    postcode    = Column(Text, nullable=True)
+    sector      = Column(Text, nullable=True, comment="Government | Catholic | Independent")
+    school_type = Column(Text, nullable=True, comment="Primary | Secondary | Combined | Special")
+    is_special  = Column(Integer, nullable=True, comment="1 if special school, 0 otherwise")
+    lat         = Column(Float, nullable=True)
+    lon         = Column(Float, nullable=True)
+    sa2_code    = Column(Text, ForeignKey("sa2_regions.sa2_code"), nullable=True, comment="Containing SA2 (from ACARA location data)")
+    remoteness  = Column(Text, nullable=True, comment="ABS Remoteness Area Name")
+    year_range  = Column(Text, nullable=True, comment="e.g. 'Prep-12'")
+    icsea       = Column(Float, nullable=True)
+    icsea_percentile = Column(Float, nullable=True)
+    total_enrolments = Column(Integer, nullable=True)
+    indigenous_pct   = Column(Float, nullable=True, comment="% Indigenous enrolments")
+    source_year = Column(Integer, nullable=True, comment="ACARA data year (e.g. 2025)")
+    # Provenance
+    acara_location_age_id = Column(Text, nullable=True, comment="Location AGE ID from ACARA location file")
+
+    __table_args__ = (
+        Index("ix_schools_sa2", "sa2_code"),
+        Index("ix_schools_state", "state"),
+        Index("ix_schools_sector_type", "sector", "school_type"),
+    )
+
+
+class SA2SchoolLink(Base):
+    __tablename__ = "sa2_school_link"
+
+    sa2_code = Column(Text, ForeignKey("sa2_regions.sa2_code"), nullable=False, primary_key=True)
+    acara_id = Column(Text, ForeignKey("schools.acara_id"), nullable=False, primary_key=True)
+    impact_score = Column(Float, nullable=True, comment="1.0 = containing SA2, 0.5 = border-adjacent SA2")
+
+
 class AmenityData(Base):
     """Store OpenStreetMap Overpass API amenity counts for suburb intelligence."""
     
