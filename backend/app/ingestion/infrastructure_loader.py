@@ -40,7 +40,6 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from math import asin, cos, radians, sin, sqrt
 from pathlib import Path
 
 import urllib3
@@ -53,9 +52,8 @@ from app.db.models import InfrastructureProject, SA2ProjectLink, SA2Region
 
 logger = logging.getLogger(__name__)
 
-_SOURCE            = "Infrastructure Australia Priority List 2026"
-_GEOCODE_DELAY     = 1.1   # seconds — Nominatim ToS: max 1 req/s
-_IMPACT_RADIUS_KM  = 25.0  # link SA2 centroids within this radius
+_SOURCE        = "Infrastructure Australia Priority List 2026"
+_GEOCODE_DELAY = 1.1   # seconds — Nominatim ToS: max 1 req/s
 
 # Regex: one line → name | state codes | timing
 _LINE_PAT = re.compile(
@@ -118,10 +116,10 @@ def load_infrastructure_projects(
     report.projects_parsed = len(raw_projects)
     logger.info("Parsed %d projects from PDF", report.projects_parsed)
 
-    # 2. SA2 centroids (loaded once for proximity linking)
-    logger.info("Loading SA2 centroids ...")
-    sa2_centroids = _load_sa2_centroids(db)
-    logger.info("Loaded %d SA2 centroids", len(sa2_centroids))
+    # 2. SA2 geometries (loaded once for containment + adjacency linking)
+    logger.info("Loading SA2 geometries ...")
+    sa2_gdf = _load_sa2_geodataframe(db)
+    logger.info("Loaded %d SA2 polygons", len(sa2_gdf))
 
     # 3. Geocode + upsert
     http = requests.Session()
@@ -169,12 +167,12 @@ def load_infrastructure_projects(
             ))
         report.projects_upserted += 1
 
-        # Refresh SA2 proximity links
+        # Refresh SA2 links — containing SA2 + adjacent SA2s only
         if lat is not None:
             db.query(SA2ProjectLink).filter(
                 SA2ProjectLink.project_id == project_id
             ).delete(synchronize_session=False)
-            for sa2_code, impact_score in _find_nearby_sa2s(lat, lon, sa2_centroids):
+            for sa2_code, impact_score in _find_sa2s_for_project(lat, lon, sa2_gdf):
                 db.add(SA2ProjectLink(
                     sa2_code     = sa2_code,
                     project_id   = project_id,
@@ -357,40 +355,73 @@ def _geocode(
     return None, None
 
 
-def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    R = 6371.0
-    dlat = radians(lat2 - lat1)
-    dlon = radians(lon2 - lon1)
-    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
-    return 2.0 * R * asin(sqrt(a))
+def _load_sa2_geodataframe(db: Session):
+    """Load all SA2 polygons as a GeoDataFrame (EPSG:4326).
 
-
-def _load_sa2_centroids(db: Session) -> dict[str, tuple[float, float]]:
-    """Return {sa2_code: (lat, lon)} centroids computed from geometry_geojson."""
+    Used by both the IA Priority List and iPAMS loaders.
+    """
+    import geopandas as gpd
     from shapely.geometry import shape as shp_shape
 
-    centroids: dict[str, tuple[float, float]] = {}
+    sa2_codes: list[str] = []
+    geometries: list = []
+
     for sa2_code, geojson_str in db.query(SA2Region.sa2_code, SA2Region.geometry_geojson).all():
         if not geojson_str:
             continue
         try:
-            c = shp_shape(json.loads(geojson_str)).centroid
-            centroids[sa2_code] = (c.y, c.x)  # lat, lon
+            geom = shp_shape(json.loads(geojson_str))
+            sa2_codes.append(sa2_code)
+            geometries.append(geom)
         except Exception:
             pass
-    return centroids
+
+    return gpd.GeoDataFrame({"sa2_code": sa2_codes}, geometry=geometries, crs="EPSG:4326")
 
 
-def _find_nearby_sa2s(
+def _find_sa2s_for_project(
     lat: float,
     lon: float,
-    centroids: dict[str, tuple[float, float]],
+    sa2_gdf,
 ) -> list[tuple[str, float]]:
-    """SA2s within _IMPACT_RADIUS_KM with linear-decay impact scores."""
-    results = []
-    for sa2_code, (slat, slon) in centroids.items():
-        dist = _haversine(lat, lon, slat, slon)
-        if dist <= _IMPACT_RADIUS_KM:
-            score = round(1.0 - dist / _IMPACT_RADIUS_KM, 3)
-            results.append((sa2_code, score))
+    """Return [(sa2_code, impact_score)] for the containing SA2 and its neighbours.
+
+    - Containing SA2 (project point falls inside): score = 1.0
+    - SA2s sharing a border with the containing SA2: score = 0.5
+
+    If the point doesn't fall inside any SA2 (simplified geometry gaps, coastal
+    projects), uses the nearest SA2 polygon within ~2 km as the primary.
+    """
+    from shapely.geometry import Point
+
+    point = Point(lon, lat)  # shapely convention: (x=lon, y=lat)
+
+    # --- 1. Find containing SA2 ---
+    containing = sa2_gdf[sa2_gdf.geometry.contains(point)]
+
+    if containing.empty:
+        # Nearest polygon fallback (handles geometry simplification gaps / coastal projects)
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", "Geometry is in a geographic CRS")
+            distances = sa2_gdf.geometry.distance(point)
+        nearest_idx = distances.idxmin()
+        if distances[nearest_idx] > 0.02:   # > ~2.2 km — project outside Australia
+            return []
+        containing = sa2_gdf.loc[[nearest_idx]]
+
+    primary_code = containing.iloc[0]["sa2_code"]
+    primary_geom = containing.iloc[0].geometry
+    results = [(primary_code, 1.0)]
+
+    # --- 2. Adjacent SA2s (share a boundary) ---
+    # Buffer by ~110 m to bridge simplified-geometry slivers
+    buffered = primary_geom.buffer(0.001)
+    neighbours = sa2_gdf[
+        (sa2_gdf["sa2_code"] != primary_code) &
+        sa2_gdf.geometry.intersects(buffered)
+    ]
+    for _, row in neighbours.iterrows():
+        results.append((row["sa2_code"], 0.5))
+
     return results

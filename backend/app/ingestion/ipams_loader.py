@@ -55,9 +55,8 @@ from sqlalchemy.orm import Session
 
 from app.db.models import InfrastructureProject, SA2ProjectLink, SA2Region
 from app.ingestion.infrastructure_loader import (
-    _haversine,
-    _load_sa2_centroids,
-    _find_nearby_sa2s,
+    _load_sa2_geodataframe,
+    _find_sa2s_for_project,
 )
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -70,8 +69,7 @@ _FEATURE_SERVICE = (
 )
 _PAGE_SIZE     = 2000   # server max
 _REQUEST_DELAY = 0.5    # seconds between pages
-_SOURCE        = "iPAMS"
-_IMPACT_RADIUS_KM = 25.0
+_SOURCE = "iPAMS"
 
 _OUT_FIELDS = ",".join([
     "OBJECTID", "Project_ID", "ProjectName", "SubProgram",
@@ -124,9 +122,9 @@ def load_ipams_projects(db: Session) -> IPAMSReport:
     features = _fetch_all_features(report)
     logger.info("Fetched %d features", report.records_fetched)
 
-    logger.info("Loading SA2 centroids ...")
-    sa2_centroids = _load_sa2_centroids(db)
-    logger.info("Loaded %d SA2 centroids", len(sa2_centroids))
+    logger.info("Loading SA2 geometries ...")
+    sa2_gdf = _load_sa2_geodataframe(db)
+    logger.info("Loaded %d SA2 polygons", len(sa2_gdf))
 
     for feat in features:
         attrs    = feat.get("attributes", {})
@@ -193,12 +191,12 @@ def load_ipams_projects(db: Session) -> IPAMSReport:
             ))
         report.projects_upserted += 1
 
-        # SA2 proximity links — active projects only
+        # SA2 links — containing SA2 + adjacent SA2s, active projects only
         if lat is not None and status in _ACTIVE_STATUSES:
             db.query(SA2ProjectLink).filter(
                 SA2ProjectLink.project_id == project_id
             ).delete(synchronize_session=False)
-            for sa2_code, impact_score in _find_nearby_sa2s(lat, lon, sa2_centroids):
+            for sa2_code, impact_score in _find_sa2s_for_project(lat, lon, sa2_gdf):
                 db.add(SA2ProjectLink(
                     sa2_code     = sa2_code,
                     project_id   = project_id,
