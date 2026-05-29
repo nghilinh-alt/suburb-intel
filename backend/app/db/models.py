@@ -106,6 +106,14 @@ class ABSCEntensMetrics(Base):
     domain_days_on_market     = Column(Float,   nullable=True, comment="Median days on market for houses (Domain API)")
     domain_clearance_rate     = Column(Float,   nullable=True, comment="Auction clearance rate 0–1 for houses; null if < 10 auctions (Domain API)")
 
+    # ── Building Approvals (ABS, FY2024-25) ──────────────────────────────────
+    building_approvals_1yr = Column(Integer, nullable=True, comment="New residential dwellings approved in last full financial year (ABS SA2 building approvals)")
+
+    # ── Population Projections (ABS, base 2022, series B) ────────────────────
+    pop_proj_2026 = Column(Integer, nullable=True, comment="ABS projected total population at 30 June 2026 (series B medium)")
+    pop_proj_2031 = Column(Integer, nullable=True, comment="ABS projected total population at 30 June 2031 (series B medium)")
+    pop_growth_proj_pct = Column(Float, nullable=True, comment="Projected population % change 2023→2031 (ABS series B)")
+
     # ── Legacy / cross-census fields ─────────────────────────────────────────
     industry_profile = Column(JSON, nullable=True, comment="DEPRECATED – industry bucket proportions (G53 not in scope)")
     pop_growth_5yr = Column(Float, nullable=True, comment="Population growth % between 2016 and 2021 Census")
