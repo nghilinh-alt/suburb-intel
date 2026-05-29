@@ -131,9 +131,15 @@ class InfrastructureProject(Base):
     lat        = Column(Float, nullable=True)
     lon        = Column(Float, nullable=True)
     # IA-specific fields (added via migration if DB already exists)
-    state      = Column(Text, nullable=True, comment="State codes from IA PDF, e.g. 'NSW' or 'VIC, NSW'")
-    timing     = Column(Text, nullable=True, comment="IA timing category, e.g. '2-4 year pipeline'")
-    source     = Column(Text, nullable=True, comment="Data source, e.g. 'Infrastructure Australia Priority List 2026'")
+    state      = Column(Text, nullable=True, comment="State codes, e.g. 'NSW' or 'VIC, NSW'")
+    timing     = Column(Text, nullable=True, comment="IA timing category OR '<start> to <end>' date string")
+    source     = Column(Text, nullable=True, comment="Data source label")
+    # iPAMS-specific fields (added via migration)
+    agc_aud       = Column(Integer, nullable=True, comment="Australian Government Commitment (AUD) from iPAMS")
+    sub_program   = Column(Text,    nullable=True, comment="iPAMS sub-program, e.g. 'Black Spot Projects'")
+    expected_start = Column(Text,   nullable=True, comment="Expected start date string from iPAMS")
+    expected_end   = Column(Text,   nullable=True, comment="Expected end date string from iPAMS")
+    project_url    = Column(Text,   nullable=True, comment="URL to project detail page")
 
 
 class SA2ProjectLink(Base):
