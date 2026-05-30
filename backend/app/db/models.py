@@ -83,15 +83,6 @@ class ABSCEntensMetrics(Base):
     seifa_ieo_score    = Column(Float,   nullable=True, comment="IEO score (education and occupation)")
     seifa_ieo_decile   = Column(Integer, nullable=True, comment="IEO decile 1–10 within Australia")
 
-    # ── SEIFA 2016 (for gentrification change signal) ────────────────────────
-    seifa_irsd_score_2016  = Column(Float, nullable=True, comment="IRSD score from 2016 Census")
-    seifa_irsad_score_2016 = Column(Float, nullable=True, comment="IRSAD score from 2016 Census")
-    seifa_ieo_score_2016   = Column(Float, nullable=True, comment="IEO score from 2016 Census")
-    # Deltas: positive = improving (less disadvantaged / more educated-professional)
-    seifa_irsd_change  = Column(Float, nullable=True, comment="IRSD 2021 minus 2016 — positive = area becoming less disadvantaged")
-    seifa_irsad_change = Column(Float, nullable=True, comment="IRSAD 2021 minus 2016")
-    seifa_ieo_change   = Column(Float, nullable=True, comment="IEO 2021 minus 2016 — positive = more educated/professional influx (gentrification signal)")
-
     # ── Schools (ICSEA 2025) ─────────────────────────────────────────────────
     avg_school_icsea = Column(Float, nullable=True, comment="Enrolment-weighted avg ICSEA across schools whose postcode maps to this SA2 (2025 data)")
     num_schools = Column(Integer, nullable=True, comment="Number of schools with a valid ICSEA score in this SA2 (2025 data)")
