@@ -214,6 +214,31 @@ class School(Base):
     )
 
 
+class PlanningZone(Base):
+    __tablename__ = "planning_zones"
+
+    zone_id       = Column(Text, primary_key=True, comment="'pda-<objectid>'")
+    name          = Column(Text, nullable=False)
+    zone_type     = Column(Text, nullable=True, comment="PDA | future zone types")
+    status        = Column(Text, nullable=True, comment="eg. Declared | Superseded")
+    lga_name      = Column(Text, nullable=True)
+    gazetted_date = Column(Text, nullable=True, comment="ISO date string")
+    state         = Column(Text, nullable=True)
+    source        = Column(Text, nullable=True)
+    geometry_geojson = Column(Text, nullable=True, comment="GeoJSON polygon (WGS84)")
+
+    __table_args__ = (Index("ix_planning_zones_type", "zone_type"),)
+
+
+class SA2PlanningLink(Base):
+    __tablename__ = "sa2_planning_link"
+
+    sa2_code = Column(Text, ForeignKey("sa2_regions.sa2_code"), nullable=False, primary_key=True)
+    zone_id  = Column(Text, ForeignKey("planning_zones.zone_id"), nullable=False, primary_key=True)
+    overlap_pct  = Column(Float, nullable=True, comment="Fraction of SA2 area covered by the planning zone (0–1)")
+    impact_score = Column(Float, nullable=True, comment="Same as overlap_pct for now; capped at 1.0")
+
+
 class HealthFacility(Base):
     __tablename__ = "health_facilities"
 
