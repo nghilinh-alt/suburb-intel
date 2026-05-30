@@ -212,6 +212,37 @@ class School(Base):
     )
 
 
+class HealthFacility(Base):
+    __tablename__ = "health_facilities"
+
+    facility_id   = Column(Text, primary_key=True, comment="'aihw-<code>' or 'ga-<objectid>'")
+    name          = Column(Text, nullable=False)
+    facility_type = Column(Text, nullable=True, comment="public_hospital | private_hospital | aged_care | nursing_home | indigenous_health | disability_support")
+    lat           = Column(Float, nullable=True)
+    lon           = Column(Float, nullable=True)
+    state         = Column(Text, nullable=True)
+    address       = Column(Text, nullable=True)
+    suburb        = Column(Text, nullable=True)
+    phn_name      = Column(Text, nullable=True, comment="Primary Health Network name (AIHW)")
+    is_operational = Column(Integer, nullable=True, comment="1 = operational, 0 = closed")
+    source        = Column(Text, nullable=True, comment="AIHW | GA Foundation Facilities")
+    # Provenance
+    source_id     = Column(Text, nullable=True, comment="Original ID from source system")
+
+    __table_args__ = (
+        Index("ix_health_facilities_type", "facility_type"),
+        Index("ix_health_facilities_state", "state"),
+    )
+
+
+class SA2HealthLink(Base):
+    __tablename__ = "sa2_health_link"
+
+    sa2_code    = Column(Text, ForeignKey("sa2_regions.sa2_code"), nullable=False, primary_key=True)
+    facility_id = Column(Text, ForeignKey("health_facilities.facility_id"), nullable=False, primary_key=True)
+    impact_score = Column(Float, nullable=True, comment="1.0 = containing SA2, 0.5 = border-adjacent SA2")
+
+
 class SA2SchoolLink(Base):
     __tablename__ = "sa2_school_link"
 
