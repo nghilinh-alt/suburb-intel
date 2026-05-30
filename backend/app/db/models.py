@@ -202,6 +202,7 @@ class School(Base):
     total_enrolments = Column(Integer, nullable=True)
     indigenous_pct   = Column(Float, nullable=True, comment="% Indigenous enrolments")
     source_year = Column(Integer, nullable=True, comment="ACARA data year (e.g. 2025)")
+    source      = Column(Text, nullable=True, comment="Data source: ACARA | GA Foundation Facilities")
     # Provenance
     acara_location_age_id = Column(Text, nullable=True, comment="Location AGE ID from ACARA location file")
 
