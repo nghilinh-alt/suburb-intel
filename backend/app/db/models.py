@@ -180,19 +180,51 @@ class SA2ProjectLink(Base):
 
 
 class SuburbScore(Base):
+    """Scored output for each SA2. Populated by app/jobs/backfill_scores.py.
+
+    All *_score columns are 0–10 (higher = better).
+    Intermediate columns store the key derived inputs so the self-investigation
+    system can explain any score without re-running the pipeline.
+    """
     __tablename__ = "suburb_scores"
 
-    sa2_code = Column(Text, primary_key=True)
-    investment_score = Column(Float, nullable=True)
-    demographic_score = Column(Float, nullable=True)
-    economic_score = Column(Float, nullable=True)
-    housing_pressure_score = Column(Float, nullable=True)
-    resilience_score = Column(Float, nullable=True)
-    gov_investment_score = Column(Float, nullable=True)
-    risk_flags = Column(JSON, nullable=True)
-    updated_at = Column(DateTime, nullable=True)
+    sa2_code = Column(Text, ForeignKey("sa2_regions.sa2_code"), primary_key=True)
 
-    __table_args__ = (Index("ix_suburb_scores_investment_desc", "investment_score"),)
+    # ── Composite score ───────────────────────────────────────────────────────
+    investment_score = Column(Float, nullable=True, comment="Weighted composite 0–10")
+
+    # ── Dimension scores (0–10) ───────────────────────────────────────────────
+    liveability_score     = Column(Float, nullable=True, comment="Amenity + transit + healthcare + parks")
+    education_score       = Column(Float, nullable=True, comment="School ICSEA quality + type coverage")
+    growth_score          = Column(Float, nullable=True, comment="Population growth + investment + gentrification")
+    demographic_score     = Column(Float, nullable=True, comment="Income + SEIFA + education + employment")
+    housing_score         = Column(Float, nullable=True, comment="Mortgage/rent stress + dwelling character")
+    infrastructure_score  = Column(Float, nullable=True, comment="Govt committed investment pipeline")
+    gentrification_index  = Column(Float, nullable=True, comment="0–10 composite gentrification signal")
+
+    # ── Derived intermediates (explain scores, support self-investigation) ────
+    edu_avg_icsea         = Column(Float,   nullable=True, comment="Enrolment-weighted avg ICSEA of linked K-12 schools")
+    edu_top_school_count  = Column(Integer, nullable=True, comment="Schools with ICSEA ≥ 1100 within/adjacent SA2")
+    edu_secondary_count   = Column(Integer, nullable=True, comment="Secondary + Combined schools within/adjacent")
+    edu_tertiary_count    = Column(Integer, nullable=True, comment="University + TAFE campuses within/adjacent")
+    health_hospital_score = Column(Float,   nullable=True, comment="Sum of impact_score for public hospitals (1.0=in SA2, 0.5=adjacent)")
+    health_gp_count       = Column(Integer, nullable=True, comment="GP clinics + medical centres (from Overture)")
+    infra_committed_aud   = Column(Float,   nullable=True, comment="Total committed govt investment linked to SA2 ($AUD)")
+    infra_project_count   = Column(Integer, nullable=True, comment="Active infrastructure projects linked to SA2")
+    transit_score_raw     = Column(Float,   nullable=True, comment="train×4 + tram×3 + ferry×2 + bus×1 stop count")
+
+    # ── Risk flags ────────────────────────────────────────────────────────────
+    risk_flags = Column(JSON, nullable=True, comment="List of raised risk flag strings")
+
+    # ── Metadata ─────────────────────────────────────────────────────────────
+    score_version = Column(Text,     nullable=True, comment="Engine version tag")
+    updated_at    = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_suburb_scores_investment_desc", "investment_score"),
+        Index("ix_suburb_scores_growth", "growth_score"),
+        Index("ix_suburb_scores_liveability", "liveability_score"),
+    )
 
 
 class School(Base):
