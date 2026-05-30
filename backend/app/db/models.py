@@ -98,7 +98,8 @@ class ABSCEntensMetrics(Base):
     osm_supermarkets = Column(Integer, nullable=True, comment="Supermarkets + grocery stores + convenience stores")
     osm_parks        = Column(Integer, nullable=True, comment="Parks, reserves, playgrounds, beaches")
     osm_gyms         = Column(Integer, nullable=True, comment="Gyms + yoga + pilates + sports centres")
-    osm_hospitals    = Column(Integer, nullable=True, comment="Hospitals + clinics + medical centres + GPs")
+    osm_hospitals        = Column(Integer, nullable=True, comment="Actual hospitals only: hospital, urgent_care_center, emergency_room (Overture)")
+    osm_medical_centers  = Column(Integer, nullable=True, comment="GP clinics + medical centres + doctors offices (Overture primary care)")
     osm_pharmacies   = Column(Integer, nullable=True, comment="Pharmacies + drugstores")
     osm_shopping_centres = Column(Integer, nullable=True, comment="Shopping malls + department stores")
     # ── Restaurant cuisine breakdown (subsets of osm_restaurants) ───────────

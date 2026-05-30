@@ -21,7 +21,7 @@ Columns written to abs_census_metrics
 Core counts:
   osm_cafes, osm_bakeries, osm_restaurants, osm_fast_food,
   osm_supermarkets, osm_parks, osm_gyms, osm_hospitals,
-  osm_pharmacies, osm_shopping_centres
+  osm_medical_centers, osm_pharmacies, osm_shopping_centres
 
 Cuisine breakdown (subsets of osm_restaurants):
   osm_rest_chinese, osm_rest_indian, osm_rest_thai, osm_rest_italian,
@@ -139,17 +139,18 @@ _OVERTURE_TO_CAT: dict[str, str] = {
     "martial_arts_school":             "gym",
     "boxing_gym":                      "gym",
     "crossfit_gym":                    "gym",
-    # ── Hospitals / medical ──────────────────────────────────────────────
+    # ── Hospitals (actual inpatient facilities) ──────────────────────────
     "hospital":                        "hospital",
     "urgent_care_center":              "hospital",
     "emergency_room":                  "hospital",
-    "medical_center":                  "hospital",
-    "clinic":                          "hospital",
-    "doctors_office":                  "hospital",
-    "medical_clinic":                  "hospital",
-    "health_clinic":                   "hospital",
-    "general_practitioner":            "hospital",
-    "medical_office":                  "hospital",
+    # ── GP clinics / medical centres (primary care) ──────────────────────
+    "medical_center":                  "medical_center",
+    "clinic":                          "medical_center",
+    "doctors_office":                  "medical_center",
+    "medical_clinic":                  "medical_center",
+    "health_clinic":                   "medical_center",
+    "general_practitioner":            "medical_center",
+    "medical_office":                  "medical_center",
     # ── Pharmacies ───────────────────────────────────────────────────────
     "pharmacy":                        "pharmacy",
     "drugstore":                       "pharmacy",
@@ -168,6 +169,7 @@ _CAT_COLUMN: dict[str, str] = {
     "park":              "osm_parks",
     "gym":               "osm_gyms",
     "hospital":          "osm_hospitals",
+    "medical_center":    "osm_medical_centers",
     "pharmacy":          "osm_pharmacies",
     "shopping_centre":   "osm_shopping_centres",
     # Cuisine breakdown
@@ -201,6 +203,7 @@ _SCORE_PARAMS: dict[str, tuple[float, int]] = {
     "park":             (8.5,   5),
     "gym":              (7.0,   5),
     "hospital":         (9.5,   3),
+    "medical_center":   (9.0,   5),
     "pharmacy":         (8.0,   5),
     "shopping_centre":  (6.5,   3),
 }
