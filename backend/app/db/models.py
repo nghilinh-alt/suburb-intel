@@ -227,6 +227,47 @@ class School(Base):
     )
 
 
+class SA2Zoning(Base):
+    """Land use zoning breakdown per SA2, derived from state planning portal data.
+
+    Each pct column is the fraction of the SA2's area covered by that zone category (0–100).
+    Null means the state's data has not been loaded for that SA2.
+    Currently populated for NSW only; VIC/QLD/others to follow.
+    """
+    __tablename__ = "sa2_zoning"
+
+    sa2_code = Column(Text, ForeignKey("sa2_regions.sa2_code"), primary_key=True)
+    state    = Column(Text, nullable=True, comment="State code whose zoning data was loaded")
+
+    # Residential
+    zone_pct_high_density_res  = Column(Float, nullable=True, comment="% SA2 area zoned High Density Residential")
+    zone_pct_medium_density_res = Column(Float, nullable=True, comment="% SA2 area zoned Medium Density Residential")
+    zone_pct_low_density_res   = Column(Float, nullable=True, comment="% SA2 area zoned Low/General Density Residential or Village")
+    zone_pct_large_lot_res     = Column(Float, nullable=True, comment="% SA2 area zoned Large Lot Residential")
+    zone_pct_residential_total = Column(Float, nullable=True, comment="% SA2 area zoned for any residential use")
+
+    # Mixed use / commercial
+    zone_pct_mixed_use         = Column(Float, nullable=True, comment="% SA2 area zoned Mixed Use")
+    zone_pct_commercial        = Column(Float, nullable=True, comment="% SA2 area zoned commercial centre / local centre")
+
+    # Industrial / employment
+    zone_pct_industrial        = Column(Float, nullable=True, comment="% SA2 area zoned industrial or employment")
+
+    # Open space
+    zone_pct_public_recreation = Column(Float, nullable=True, comment="% SA2 area zoned Public Recreation or Open Space")
+    zone_pct_environmental     = Column(Float, nullable=True, comment="% SA2 area zoned Environmental Conservation/Management")
+
+    # Development pressure signal
+    zone_pct_urban_development = Column(Float, nullable=True, comment="% SA2 area in transition/urban development zones")
+
+    # Provenance
+    zone_breakdown_json = Column(JSON, nullable=True, comment="Full zone class breakdown {class: pct} for audit/self-investigation")
+    source              = Column(Text, nullable=True)
+    source_date         = Column(Text, nullable=True)
+
+    __table_args__ = (Index("ix_sa2_zoning_state", "state"),)
+
+
 class PlanningZone(Base):
     __tablename__ = "planning_zones"
 
