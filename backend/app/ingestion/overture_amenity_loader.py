@@ -21,7 +21,9 @@ Columns written to abs_census_metrics
 Core counts:
   osm_cafes, osm_bakeries, osm_restaurants, osm_fast_food,
   osm_supermarkets, osm_parks, osm_gyms, osm_hospitals,
-  osm_medical_centers, osm_pharmacies, osm_shopping_centres
+  osm_medical_centers, osm_pharmacies, osm_shopping_centres,
+  osm_mechanics, osm_hardware_stores, osm_petrol_stations, osm_banks,
+  osm_post_offices, osm_laundries, osm_car_washes, osm_vets, osm_pet_stores
 
 Cuisine breakdown (subsets of osm_restaurants):
   osm_rest_chinese, osm_rest_indian, osm_rest_thai, osm_rest_italian,
@@ -157,6 +159,22 @@ _OVERTURE_TO_CAT: dict[str, str] = {
     # ── Shopping centres ─────────────────────────────────────────────────
     "shopping_mall":                   "shopping_centre",
     "department_store":                "shopping_centre",
+    # ── Service businesses ───────────────────────────────────────────────
+    "auto_repair":                     "mechanic",
+    "car_repair":                      "mechanic",
+    "auto_service":                    "mechanic",
+    "hardware_store":                  "hardware_store",
+    "home_improvement_store":          "hardware_store",
+    "gas_station":                     "petrol_station",
+    "petrol_station":                  "petrol_station",
+    "fuel_station":                    "petrol_station",
+    "bank":                            "bank",
+    "post_office":                     "post_office",
+    "laundry":                         "laundry",
+    "dry_cleaner":                     "laundry",
+    "car_wash":                        "car_wash",
+    "veterinarian":                    "vet",
+    "pet_store":                       "pet_store",
 }
 
 # Internal category → DB column on abs_census_metrics
@@ -172,6 +190,16 @@ _CAT_COLUMN: dict[str, str] = {
     "medical_center":    "osm_medical_centers",
     "pharmacy":          "osm_pharmacies",
     "shopping_centre":   "osm_shopping_centres",
+    # Service businesses
+    "mechanic":          "osm_mechanics",
+    "hardware_store":    "osm_hardware_stores",
+    "petrol_station":    "osm_petrol_stations",
+    "bank":              "osm_banks",
+    "post_office":       "osm_post_offices",
+    "laundry":           "osm_laundries",
+    "car_wash":          "osm_car_washes",
+    "vet":               "osm_vets",
+    "pet_store":         "osm_pet_stores",
     # Cuisine breakdown
     "rest_chinese":         "osm_rest_chinese",
     "rest_indian":          "osm_rest_indian",

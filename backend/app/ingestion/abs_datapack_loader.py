@@ -424,6 +424,28 @@ def _compute_one_bedroom_pct(g41: pd.DataFrame, sa2_code: str) -> float | None:
     )
 
 
+def _compute_flat_storey_pcts(
+    g41: pd.DataFrame, sa2_code: str
+) -> tuple[float | None, float | None, float | None]:
+    """(low_rise_pct, mid_rise_pct, high_rise_pct) as % of total dwellings.
+
+    low_rise  = flats in 1-2 storey blocks
+    mid_rise  = flats in 3-8 storey blocks (3-storey + 4-8 storey combined)
+    high_rise = flats in 9+ storey blocks
+    """
+    total = _scalar(g41, sa2_code, "Total_Total")
+    low   = _scalar(g41, sa2_code, "Flt_at_In_1or2_s_b_Total")
+    mid3  = _scalar(g41, sa2_code, "Flt_apt_In_3_st_bl_Total")
+    mid48 = _scalar(g41, sa2_code, "Flt_apt_4to8_s_b_Total")
+    high  = _scalar(g41, sa2_code, "Flt_apt_9_or_m_s_b_Total")
+    mid   = (mid3 or 0) + (mid48 or 0)
+    return (
+        _pct(low, total),
+        _pct(mid, total) if (mid3 is not None or mid48 is not None) else None,
+        _pct(high, total),
+    )
+
+
 def _compute_moved_in_1yr_pct(g44: pd.DataFrame, sa2_code: str) -> float | None:
     """% who lived in a different SA2 or overseas one year before census night."""
     from_diff_sa2 = _scalar(g44, sa2_code, "Dif_Us_ad_1_ago_Dif_SA2_Tot_P") or 0.0
@@ -543,8 +565,9 @@ def _build_metrics(
     # G40 — rent stress
     high_rent_stress_pct = _compute_high_rent_stress_pct(g40, sa2_code)
 
-    # G41 — bedrooms
+    # G41 — bedrooms + storey breakdown
     one_bedroom_pct = _compute_one_bedroom_pct(g41, sa2_code)
+    flat_low_rise_pct, flat_mid_rise_pct, flat_high_rise_pct = _compute_flat_storey_pcts(g41, sa2_code)
 
     # G44 / G45 — residential mobility
     moved_in_1yr_pct = _compute_moved_in_1yr_pct(g44, sa2_code)
@@ -580,6 +603,9 @@ def _build_metrics(
         avg_household_size=avg_household_size,
         separate_house_pct=separate_house_pct,
         flat_apartment_pct=flat_apartment_pct,
+        flat_low_rise_pct=flat_low_rise_pct,
+        flat_mid_rise_pct=flat_mid_rise_pct,
+        flat_high_rise_pct=flat_high_rise_pct,
         high_mortgage_stress_pct=high_mortgage_stress_pct,
         high_rent_stress_pct=high_rent_stress_pct,
         # Growth / Gentrification

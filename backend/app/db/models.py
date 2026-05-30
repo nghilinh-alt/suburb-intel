@@ -49,8 +49,11 @@ class ABSCEntensMetrics(Base):
 
     # ── Property (G35, G36, G38, G40) ────────────────────────────────────────
     avg_household_size = Column(Float, nullable=True)
-    separate_house_pct = Column(Float, nullable=True, comment="% of occupied private dwellings that are separate houses (G36)")
-    flat_apartment_pct = Column(Float, nullable=True, comment="% of occupied private dwellings that are flats/apartments (G36)")
+    separate_house_pct     = Column(Float, nullable=True, comment="% of occupied private dwellings that are separate houses (G36)")
+    flat_apartment_pct     = Column(Float, nullable=True, comment="% of occupied private dwellings that are flats/apartments (G36)")
+    flat_low_rise_pct      = Column(Float, nullable=True, comment="% of dwellings that are flats in 1-2 storey blocks (G41)")
+    flat_mid_rise_pct      = Column(Float, nullable=True, comment="% of dwellings that are flats in 3-8 storey blocks (G41)")
+    flat_high_rise_pct     = Column(Float, nullable=True, comment="% of dwellings that are flats in 9+ storey blocks (G41)")
     high_mortgage_stress_pct = Column(Float, nullable=True, comment="% of mortgaged dwellings paying ≥$3 000/month (G38)")
     high_rent_stress_pct = Column(Float, nullable=True, comment="% of rented dwellings paying ≥$650/week (G40)")
 
@@ -102,6 +105,16 @@ class ABSCEntensMetrics(Base):
     osm_medical_centers  = Column(Integer, nullable=True, comment="GP clinics + medical centres + doctors offices (Overture primary care)")
     osm_pharmacies   = Column(Integer, nullable=True, comment="Pharmacies + drugstores")
     osm_shopping_centres = Column(Integer, nullable=True, comment="Shopping malls + department stores")
+    # ── Service businesses (Overture) ────────────────────────────────────
+    osm_mechanics        = Column(Integer, nullable=True, comment="Auto repair / mechanics")
+    osm_hardware_stores  = Column(Integer, nullable=True, comment="Hardware stores (Bunnings etc)")
+    osm_petrol_stations  = Column(Integer, nullable=True, comment="Petrol / fuel stations")
+    osm_banks            = Column(Integer, nullable=True, comment="Bank branches")
+    osm_post_offices     = Column(Integer, nullable=True, comment="Post offices")
+    osm_laundries        = Column(Integer, nullable=True, comment="Laundromats + dry cleaners")
+    osm_car_washes       = Column(Integer, nullable=True, comment="Car washes")
+    osm_vets             = Column(Integer, nullable=True, comment="Veterinary clinics")
+    osm_pet_stores       = Column(Integer, nullable=True, comment="Pet stores")
     # ── Restaurant cuisine breakdown (subsets of osm_restaurants) ───────────
     osm_rest_chinese       = Column(Integer, nullable=True, comment="Chinese restaurants")
     osm_rest_indian        = Column(Integer, nullable=True, comment="Indian restaurants")
