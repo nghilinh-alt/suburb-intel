@@ -6,57 +6,103 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import SA2Region, SuburbScore
+from app.db.models import ABSCEntensMetrics, SA2Region, SuburbScore
 from app.db.session import get_db
 
 router = APIRouter()
 
 _VALID_SCORE_TYPES = frozenset({
     "investment_score",
+    "liveability_score",
+    "education_score",
+    "growth_score",
     "demographic_score",
-    "economic_score",
-    "housing_pressure_score",
-    "resilience_score",
-    "gov_investment_score",
+    "housing_score",
+    "infrastructure_score",
+    "gentrification_index",
 })
+
+_SCORE_LABELS = {
+    "investment_score":    "Overall Investment",
+    "liveability_score":   "Liveability",
+    "education_score":     "Education",
+    "growth_score":        "Growth",
+    "demographic_score":   "Demographics",
+    "housing_score":       "Housing Market",
+    "infrastructure_score": "Infrastructure Pipeline",
+    "gentrification_index": "Gentrification",
+}
 
 
 @router.get("/")
 async def get_rankings(
-    limit: int = Query(25, ge=10, le=200, description="Number of suburbs to return"),
+    limit:      int = Query(25, ge=5, le=200, description="Number of suburbs to return"),
     score_type: str = Query("investment_score", description="Score column to rank by"),
+    state:      str | None = Query(None, description="Filter by state code, e.g. NSW"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return top suburbs ranked by a precomputed score column.
+    """Return top suburbs ranked by a precomputed score column."""
 
-    Results are drawn from the suburb_scores table, populated by the backfill job.
-    """
     if score_type not in _VALID_SCORE_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"score_type must be one of {sorted(_VALID_SCORE_TYPES)}",
+            detail=f"score_type must be one of: {', '.join(sorted(_VALID_SCORE_TYPES))}",
         )
 
     order_col = getattr(SuburbScore, score_type)
+
     stmt = (
-        select(SuburbScore, SA2Region.sa2_name, SA2Region.state)
+        select(
+            SuburbScore,
+            SA2Region.sa2_name,
+            SA2Region.state,
+            ABSCEntensMetrics.population,
+            ABSCEntensMetrics.median_income,
+        )
         .join(SA2Region, SA2Region.sa2_code == SuburbScore.sa2_code)
+        .outerjoin(
+            ABSCEntensMetrics,
+            (ABSCEntensMetrics.sa2_code == SuburbScore.sa2_code)
+            & (ABSCEntensMetrics.year == 2021),
+        )
         .order_by(order_col.desc().nulls_last())
         .limit(limit)
     )
+
+    if state:
+        stmt = stmt.where(SA2Region.state == state.upper())
+
     rows = (await db.execute(stmt)).all()
 
     return {
-        "score_type": score_type,
-        "count": len(rows),
+        "score_type":  score_type,
+        "score_label": _SCORE_LABELS.get(score_type, score_type),
+        "count":       len(rows),
+        "available_score_types": sorted(_VALID_SCORE_TYPES),
         "rankings": [
             {
-                "rank": i + 1,
-                "sa2_code": score.sa2_code,
-                "sa2_name": name,
-                "state": state,
-                **{c: getattr(score, c) for c in _VALID_SCORE_TYPES},
+                "rank":        i + 1,
+                "sa2_code":    score.sa2_code,
+                "sa2_name":    name,
+                "state":       st,
+                "population":  pop,
+                "median_income": inc,
+                "scores": {
+                    "investment_score":    _r(score.investment_score),
+                    "liveability_score":   _r(score.liveability_score),
+                    "education_score":     _r(score.education_score),
+                    "growth_score":        _r(score.growth_score),
+                    "demographic_score":   _r(score.demographic_score),
+                    "housing_score":       _r(score.housing_score),
+                    "infrastructure_score": _r(score.infrastructure_score),
+                    "gentrification_index": _r(score.gentrification_index),
+                },
+                "risk_flags": score.risk_flags or [],
             }
-            for i, (score, name, state) in enumerate(rows)
+            for i, (score, name, st, pop, inc) in enumerate(rows)
         ],
     }
+
+
+def _r(v: float | None) -> float | None:
+    return round(v, 2) if v is not None else None
