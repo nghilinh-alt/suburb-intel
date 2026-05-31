@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 
+// ── Types ──────────────────────────────────────────────────────────────────
+
 interface Scores {
   investment_score: number | null
   liveability_score: number | null
@@ -10,6 +12,16 @@ interface Scores {
   housing_score: number | null
   infrastructure_score: number | null
   gentrification_index: number | null
+}
+
+interface SA2Entry {
+  sa2_code: string
+  sa2_name: string
+  population: number | null
+  scores: Scores
+  intermediates: Record<string, number | null>
+  facts: Record<string, number | null>
+  risk_flags: string[]
 }
 
 interface GroupReport {
@@ -22,13 +34,9 @@ interface GroupReport {
   population: number | null
   is_aggregate: boolean
   scores: Scores
-  facts: {
-    median_income: number | null
-    median_age: number | null
-    unemployment_pct: number | null
-    uni_degree_pct: number | null
-    pop_growth_proj_pct: number | null
-  }
+  sa2_breakdown: SA2Entry[]
+  facts: Record<string, number | null>
+  intermediates: Record<string, number | null>
   risk_flags: string[]
   tags: string[]
   insight: string
@@ -41,15 +49,19 @@ type PageState =
   | { status: 'error'; message: string }
   | { status: 'ready'; data: GroupReport }
 
-const DIMENSIONS = [
-  { key: 'liveability_score',    label: 'Liveability',    desc: 'Amenity access, transit, healthcare, parks' },
-  { key: 'growth_score',         label: 'Growth',         desc: 'Population growth, investment pipeline, gentrification' },
-  { key: 'education_score',      label: 'Education',      desc: 'School quality, coverage of all levels' },
-  { key: 'demographic_score',    label: 'Demographics',   desc: 'Income, SEIFA, workforce education' },
-  { key: 'housing_score',        label: 'Housing Market', desc: 'Mortgage/rent stress, dwelling character' },
-  { key: 'infrastructure_score', label: 'Infrastructure', desc: 'Committed government investment pipeline' },
-  { key: 'gentrification_index', label: 'Gentrification', desc: 'Composite social uplift signal' },
-]
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function fmt(v: number | null | undefined, dp = 1, suffix = '') {
+  if (v == null) return '—'
+  return `${v.toFixed(dp)}${suffix}`
+}
+
+function fmtAUD(v: number | null) {
+  if (!v) return '—'
+  if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`
+  if (v >= 1e6) return `$${(v / 1e6).toFixed(0)}M`
+  return `$${Math.round(v).toLocaleString()}`
+}
 
 function scoreColor(v: number | null) {
   if (v == null) return '#9ca0aa'
@@ -58,24 +70,129 @@ function scoreColor(v: number | null) {
   return '#e74c3c'
 }
 
-function fmt(v: number | null, dp = 1) {
-  return v != null ? v.toFixed(dp) : '—'
+// Key facts shown under each dimension score card
+function getDimFacts(key: string, intermediates: Record<string, number | null>, facts: Record<string, number | null>): string[] {
+  switch (key) {
+    case 'liveability_score': return [
+      `${facts.osm_cafes ?? '—'} cafes · ${facts.osm_restaurants ?? '—'} restaurants`,
+      `${facts.pt_stop_train ?? 0} train · ${facts.pt_stop_tram ?? 0} tram · ${facts.pt_stop_bus ?? '—'} bus stops`,
+      `${intermediates.health_gp_count ?? '—'} GP clinics · ${facts.osm_pharmacies ?? '—'} pharmacies`,
+      `${facts.osm_parks ?? '—'} parks · ${facts.osm_gyms ?? '—'} gyms`,
+    ]
+    case 'growth_score': return [
+      `${fmt(facts.pop_growth_proj_pct, 1, '%')} population growth to 2031`,
+      `${facts.building_approvals_1yr ?? '—'} building approvals (1yr)`,
+      intermediates.infra_project_count
+        ? `${intermediates.infra_project_count} active govt projects · ${fmtAUD(intermediates.infra_committed_aud)} committed`
+        : 'No committed govt projects nearby',
+    ]
+    case 'education_score': return [
+      `Avg school ICSEA: ${fmt(intermediates.edu_avg_icsea, 0)}`,
+      `${intermediates.edu_top_school_count ?? '—'} top schools (ICSEA ≥ 1100)`,
+      `${intermediates.edu_secondary_count ?? '—'} secondary schools · ${intermediates.edu_tertiary_count ?? '—'} uni/TAFE nearby`,
+    ]
+    case 'demographic_score': return [
+      `Median income: ${facts.median_income ? `$${Math.round(facts.median_income).toLocaleString()}` : '—'}`,
+      `Uni degree: ${fmt(facts.uni_degree_pct, 1, '%')} · Professionals: ${fmt(facts.professionals_managers_pct, 1, '%')}`,
+      `Unemployment: ${fmt(facts.unemployment_pct, 1, '%')} · SEIFA IEO decile: ${facts.seifa_ieo_decile ?? '—'}/10`,
+    ]
+    case 'housing_score': return [
+      `Mortgage stress: ${fmt(facts.high_mortgage_stress_pct, 1, '%')} · Rent stress: ${fmt(facts.high_rent_stress_pct, 1, '%')}`,
+      `${fmt(facts.separate_house_pct, 1, '%')} houses · ${fmt(facts.flat_apartment_pct, 1, '%')} apartments`,
+      `${fmt(facts.renters_pct, 1, '%')} renters · ${fmt(facts.social_housing_pct, 1, '%')} social housing`,
+    ]
+    case 'infrastructure_score': return [
+      intermediates.infra_committed_aud
+        ? `${fmtAUD(intermediates.infra_committed_aud)} committed investment`
+        : 'No committed govt investment nearby',
+      `${intermediates.infra_project_count ?? 0} active infrastructure projects`,
+      `Transit score: ${fmt(intermediates.transit_score_raw, 0)} (train×4 + tram×3 + bus×1)`,
+    ]
+    case 'gentrification_index': return [
+      `Residential turnover (1yr): ${fmt(facts.moved_in_1yr_pct, 1, '%')}`,
+      `Professionals: ${fmt(facts.professionals_managers_pct, 1, '%')} · Degree holders: ${fmt(facts.uni_degree_pct, 1, '%')}`,
+      `Cafes per 1k residents · Building activity · Pop. growth projection`,
+    ]
+    default: return []
+  }
 }
 
-function DimensionCard({ label, value, desc }: { label: string; value: number | null; desc: string }) {
+const DIMENSIONS = [
+  { key: 'liveability_score',    label: 'Liveability',     desc: 'Amenity access, transit, healthcare, parks' },
+  { key: 'growth_score',         label: 'Growth',          desc: 'Population growth, investment pipeline, gentrification' },
+  { key: 'education_score',      label: 'Education',       desc: 'School quality, coverage of all levels' },
+  { key: 'demographic_score',    label: 'Demographics',    desc: 'Income, SEIFA, workforce education' },
+  { key: 'housing_score',        label: 'Housing Market',  desc: 'Mortgage/rent stress, dwelling character' },
+  { key: 'infrastructure_score', label: 'Infrastructure',  desc: 'Committed government investment pipeline' },
+  { key: 'gentrification_index', label: 'Gentrification',  desc: 'Composite social uplift signal' },
+]
+
+// ── Components ─────────────────────────────────────────────────────────────
+
+function DimensionCard({
+  dimKey, label, value, facts, intermediates, sa2Breakdown, isMulti,
+}: {
+  dimKey: string
+  label: string
+  value: number | null
+  facts: Record<string, number | null>
+  intermediates: Record<string, number | null>
+  sa2Breakdown: SA2Entry[]
+  isMulti: boolean
+}) {
   const color = scoreColor(value)
-  const pct = value != null ? (value / 10) * 100 : 0
+  const pct   = value != null ? (value / 10) * 100 : 0
+  const subFacts = getDimFacts(dimKey, intermediates, facts)
+
   return (
-    <div style={{ backgroundColor: '#343b47', borderRadius: '10px', padding: '20px' }}>
-      <div style={{ fontSize: '12px', color: '#9ca0aa', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '6px' }}>{label}</div>
-      <div style={{ fontSize: '42px', fontWeight: 700, color }}>{fmt(value)}</div>
-      <div style={{ height: '4px', backgroundColor: '#4b566a', borderRadius: '2px', margin: '10px 0 8px' }}>
+    <div style={{ backgroundColor: '#343b47', borderRadius: '10px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      {/* Header */}
+      <div style={{ fontSize: '12px', color: '#9ca0aa', textTransform: 'uppercase', letterSpacing: '1px' }}>{label}</div>
+      <div style={{ fontSize: '40px', fontWeight: 700, color, lineHeight: 1 }}>{fmt(value)}</div>
+
+      {/* Progress bar */}
+      <div style={{ height: '4px', backgroundColor: '#4b566a', borderRadius: '2px' }}>
         <div style={{ height: '100%', width: `${pct}%`, backgroundColor: color, borderRadius: '2px' }} />
       </div>
-      <p style={{ color: '#9ca0aa', fontSize: '12px', margin: 0 }}>{desc}</p>
+
+      {/* Per-SA2 breakdown for multi-area suburbs */}
+      {isMulti && sa2Breakdown.length > 0 && (
+        <div style={{ borderTop: '1px solid #4b566a', paddingTop: '8px' }}>
+          {sa2Breakdown.map(sa2 => {
+            const v = sa2.scores[dimKey as keyof Scores]
+            const c = scoreColor(v)
+            const w = v != null ? (v / 10) * 100 : 0
+            const shortName = sa2.sa2_name.replace(/^.+ - /, '')
+            return (
+              <div key={sa2.sa2_code} style={{ marginBottom: '6px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '3px' }}>
+                  <span style={{ color: '#9ca0aa' }}>{shortName}</span>
+                  <span style={{ color: c, fontWeight: 600 }}>{fmt(v)}</span>
+                </div>
+                <div style={{ height: '3px', backgroundColor: '#4b566a', borderRadius: '2px' }}>
+                  <div style={{ height: '100%', width: `${w}%`, backgroundColor: c, borderRadius: '2px', opacity: 0.7 }} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Key input facts */}
+      {subFacts.length > 0 && (
+        <div style={{ borderTop: '1px solid #4b566a', paddingTop: '8px' }}>
+          {subFacts.filter(f => f && !f.includes('undefined') && !f.includes('NaN')).map((fact, i) => (
+            <div key={i} style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '3px', lineHeight: 1.4 }}>
+              {fact}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
+
+// ── Page ───────────────────────────────────────────────────────────────────
 
 export default function SuburbGroupPage() {
   const { id = '' } = useParams<{ id: string }>()
@@ -114,7 +231,8 @@ export default function SuburbGroupPage() {
 }
 
 function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: (path: string) => void }) {
-  const { suburb_name, state: stateCode, scores, facts, insight, risk_flags, tags, note, sa2_count, sa2_names, sa2_codes, population } = data
+  const { suburb_name, state: stateCode, scores, facts, intermediates, insight, risk_flags, tags, sa2_count, sa2_names, sa2_codes, sa2_breakdown, population } = data
+  const isMulti = sa2_count > 1
 
   return (
     <>
@@ -134,13 +252,14 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
         )}
       </div>
 
-      {/* Note about ABS split */}
-      {sa2_count > 1 && (
+      {/* ABS split notice */}
+      {isMulti && (
         <div style={{ backgroundColor: '#2a3040', border: '1px solid #4b566a', borderRadius: '8px', padding: '12px 18px', marginBottom: '24px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
           <span style={{ fontSize: '18px' }}>ℹ️</span>
           <div>
             <p style={{ margin: '0 0 8px', color: '#d1d5da', fontSize: '14px' }}>
-              <strong>Why are there {sa2_count} areas?</strong> The ABS splits this suburb into {sa2_count} statistical areas (SA2s) for census data collection. The scores below are population-weighted averages across all areas — this is the real Keysborough picture.
+              <strong>Why are there {sa2_count} areas?</strong> The ABS splits this suburb into {sa2_count} statistical areas for census data collection.
+              The combined score is a population-weighted average — each dimension card shows individual area scores below.
             </p>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               {sa2_codes.map((code, i) => (
@@ -166,31 +285,21 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
         <div style={{ flex: 1, color: '#d1d5da', fontSize: '16px', lineHeight: 1.7 }}>{insight}</div>
       </div>
 
-      {/* Dimension grid */}
+      {/* Dimension grid with breakdown */}
       <h2 style={{ fontSize: '22px', marginBottom: '16px' }}>Score Breakdown</h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '16px', marginBottom: '40px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px', marginBottom: '40px' }}>
         {DIMENSIONS.map(d => (
-          <DimensionCard key={d.key} label={d.label} value={scores[d.key as keyof Scores]} desc={d.desc} />
+          <DimensionCard
+            key={d.key}
+            dimKey={d.key}
+            label={d.label}
+            value={scores[d.key as keyof Scores]}
+            facts={facts}
+            intermediates={intermediates}
+            sa2Breakdown={sa2_breakdown}
+            isMulti={isMulti}
+          />
         ))}
-      </div>
-
-      {/* Key facts */}
-      <div style={{ backgroundColor: '#343b47', borderRadius: '10px', padding: '24px', marginBottom: '32px' }}>
-        <h3 style={{ fontSize: '16px', marginTop: 0, marginBottom: '16px' }}>Key Facts</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
-          {[
-            { label: 'Median income', value: facts.median_income ? `$${Math.round(facts.median_income).toLocaleString()}` : '—' },
-            { label: 'Median age', value: fmt(facts.median_age, 0) },
-            { label: 'Unemployment %', value: `${fmt(facts.unemployment_pct)}%` },
-            { label: 'Uni degree %', value: `${fmt(facts.uni_degree_pct)}%` },
-            { label: 'Pop. growth to 2031', value: `${fmt(facts.pop_growth_proj_pct)}%` },
-          ].map(({ label, value }) => (
-            <div key={label} style={{ backgroundColor: '#2a3040', borderRadius: '6px', padding: '12px 16px' }}>
-              <div style={{ color: '#9ca0aa', fontSize: '12px', marginBottom: '4px' }}>{label}</div>
-              <div style={{ color: '#f8f8f2', fontWeight: 600, fontSize: '18px' }}>{value}</div>
-            </div>
-          ))}
-        </div>
       </div>
 
       {/* Risk flags */}
