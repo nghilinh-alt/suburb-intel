@@ -47,8 +47,14 @@ SELECT
     m.osm_cafes, m.osm_restaurants, m.osm_supermarkets, m.osm_parks,
     m.osm_gyms, m.osm_hospitals, m.osm_medical_centers, m.osm_pharmacies,
     m.osm_shopping_centres, m.amenity_score,
-    -- Service businesses
+    -- Service businesses (Overture)
     m.osm_petrol_stations, m.osm_hardware_stores, m.osm_post_offices, m.osm_vets,
+    -- ABS Business Register counts (accurate, used in v1.1 scoring)
+    m.biz_food_services, m.biz_health_social, m.biz_arts_recreation,
+    m.biz_retail_trade, m.biz_construction, m.biz_professional,
+    m.biz_education, m.biz_finance, m.biz_other_services, m.biz_total,
+    -- Rent/mortgage levels
+    m.median_rent_weekly, m.median_mortgage_monthly,
     -- Risk
     m.one_bedroom_pct, m.unemployment_pct,
     -- SEIFA

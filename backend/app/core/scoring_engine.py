@@ -1,36 +1,45 @@
-"""Suburb scoring engine.
+"""Suburb scoring engine — v1.1
 
 Pure functions — no database access. Takes a pandas DataFrame of per-SA2
-features (one row per SA2), returns the same DataFrame with score columns added.
+features, returns the same DataFrame with score columns added.
+
+v1.1 changes from v1.0:
+  - Liveability: replaced unreliable Overture amenity_score/osm_medical_centers
+    with ABS Business Register counts (biz_food_services, biz_health_social,
+    biz_arts_recreation, biz_retail_trade) — far more accurate for AU suburbs
+  - Growth: added biz_construction_pct as local development activity signal;
+    replaced osm_cafes with biz_food_services in gentrification composite;
+    added moved_in_5yr_pct as medium-term mobility signal
+  - Demographic: added families_with_children_pct and seifa_ieo_decile
+  - Housing: added renters_pct (rental demand) and median_rent_weekly (rent level);
+    rebalanced weights to reflect investment perspective
+  - Infrastructure: added biz_construction_pct as dev activity proxy
 
 Pipeline:
-  1. compute_transit_score     — derive transit_score_raw from PT stop counts
-  2. compute_gentrification    — composite from current census signals
-  3. normalise_inputs          — percentile-rank all raw inputs (0–100)
-  4. score_liveability         — amenity + transit + healthcare + parks
-  5. score_education           — school quality + coverage
-  6. score_growth              — pop growth + investment + gentrification
-  7. score_demographic         — income + SEIFA + workforce
-  8. score_housing             — mortgage/rent stress + dwelling character
-  9. score_infrastructure      — committed govt investment pipeline
- 10. score_composite           — weighted average of dimensions
- 11. compute_risk_flags        — threshold-based flag list per SA2
-
-Version tag: update SCORE_VERSION when weights or inputs change so
-the score_version column on suburb_scores tracks which run produced a result.
+  1. compute_transit_score     — weighted PT stop count
+  2. compute_gentrification    — composite z-score (ABS biz data, census mobility)
+  3. compute_infra_per_capita  — committed investment ÷ population
+  4. normalise_inputs          — percentile-rank all raw inputs (0–100)
+  5. score_liveability         — ABS biz access + transit + hospital + parks
+  6. score_education           — school ICSEA quality + type coverage
+  7. score_growth              — pop growth + infra + gentrification + construction
+  8. score_demographic         — income + SEIFA + workforce + family demand
+  9. score_housing             — stress + rental demand + rent level
+ 10. score_infrastructure      — committed govt pipeline + local dev
+ 11. score_composite           — weighted average of dimensions
+ 12. compute_risk_flags        — threshold-based flags
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-SCORE_VERSION = "v1.0"
+SCORE_VERSION = "v1.1"
 
 # ---------------------------------------------------------------------------
 # Composite weights
@@ -53,12 +62,12 @@ _RISK_THRESHOLDS = {
     "high_mortgage_stress":  ("high_mortgage_stress_pct", ">",  15.0),
     "high_unemployment":     ("unemployment_pct",          ">",   8.0),
     "high_social_housing":   ("social_housing_pct",        ">",  20.0),
-    "industrial_zone":       ("zone_pct_industrial",        ">",  30.0),  # NSW only
-    "low_amenity":           ("amenity_score",              "<",   2.0),
+    "industrial_zone":       ("zone_pct_industrial",        ">",  30.0),
+    "low_amenity":           ("biz_food_services",          "pct_lt", 20.0),  # bottom 20% nationally
     "no_hospital_nearby":    ("health_hospital_score",      "==",  0.0),
     "low_transit":           ("transit_score_raw",          "<",   5.0),
     "declining_population":  ("pop_growth_proj_pct",        "<",  -5.0),
-    "low_income":            ("median_income",              "pct_lt", 25.0),  # below 25th pct
+    "low_income":            ("median_income",              "pct_lt", 25.0),
 }
 
 
@@ -67,23 +76,11 @@ _RISK_THRESHOLDS = {
 # ===========================================================================
 
 def run_scoring_pipeline(df: pd.DataFrame) -> pd.DataFrame:
-    """Run the full scoring pipeline on a DataFrame of SA2 features.
-
-    Args:
-        df: One row per SA2. Must contain the columns expected by each phase
-            (missing columns produce null scores gracefully rather than crashing).
-
-    Returns:
-        The same DataFrame with score/flag columns added.
-    """
     df = df.copy()
     df = _compute_transit_score(df)
     df = _compute_gentrification(df)
     df = _compute_infra_per_capita(df)
-
-    # Normalise — each metric gets a _pct column (0–100, higher = better)
     df = _normalise_inputs(df)
-
     df = _score_liveability(df)
     df = _score_education(df)
     df = _score_growth(df)
@@ -92,69 +89,67 @@ def run_scoring_pipeline(df: pd.DataFrame) -> pd.DataFrame:
     df = _score_infrastructure(df)
     df = _score_composite(df)
     df = _compute_risk_flags(df)
-
     df["score_version"] = SCORE_VERSION
     return df
 
 
 # ===========================================================================
-# Phase 1 — Derived intermediates (pure computation, no DB)
+# Phase 1 — Derived intermediates
 # ===========================================================================
+
+def _s(df: pd.DataFrame, col: str) -> pd.Series:
+    """Safe column getter — returns zeros if column missing."""
+    return df.get(col, pd.Series(0, index=df.index)).fillna(0)
+
 
 def _compute_transit_score(df: pd.DataFrame) -> pd.DataFrame:
     """Weighted PT stop count: train×4, tram×3, ferry×2, bus×1."""
     df["transit_score_raw"] = (
-        df.get("pt_stop_train",  pd.Series(0, index=df.index)).fillna(0) * 4 +
-        df.get("pt_stop_tram",   pd.Series(0, index=df.index)).fillna(0) * 3 +
-        df.get("pt_stop_ferry",  pd.Series(0, index=df.index)).fillna(0) * 2 +
-        df.get("pt_stop_bus",    pd.Series(0, index=df.index)).fillna(0) * 1
+        _s(df, "pt_stop_train") * 4 +
+        _s(df, "pt_stop_tram")  * 3 +
+        _s(df, "pt_stop_ferry") * 2 +
+        _s(df, "pt_stop_bus")   * 1
     )
     return df
 
 
 def _compute_gentrification(df: pd.DataFrame) -> pd.DataFrame:
-    """Composite gentrification signal from current 2021 census data.
+    """Composite gentrification signal — z-scores of 7 indicators (weighted average).
 
-    Z-scores six indicators then averages them (with weights).
-    Produces a raw continuous value; normalised to 0–10 in the scoring phase.
+    v1.1: uses biz_food_services (ABS, accurate) instead of osm_cafes (Overture, unreliable);
+    adds moved_in_5yr_pct as medium-term mobility signal.
     """
+    pop = _s(df, "population").replace(0, np.nan)
+
+    # Per-capita business density (businesses per 1,000 residents)
+    df["biz_food_density"]  = _s(df, "biz_food_services")    / pop * 1000
+    df["approval_rate"]     = _s(df, "building_approvals_1yr") / pop * 1000
+
     components = {
-        "moved_in_1yr_pct":           2.0,
+        "moved_in_1yr_pct":           2.0,   # current residential churn
+        "moved_in_5yr_pct":           1.0,   # medium-term arrival (NEW)
         "uni_degree_pct":             1.5,
         "professionals_managers_pct": 1.5,
-        "cafe_density":               1.0,  # computed below
-        "approval_rate":              1.0,  # computed below
+        "biz_food_density":           1.0,   # ABS food business density (was osm_cafes)
+        "approval_rate":              1.0,   # construction activity
         "pop_growth_proj_pct":        1.0,
     }
+    total_w = sum(components.values())
 
-    # Derived inputs
-    pop = df.get("population", pd.Series(np.nan, index=df.index)).replace(0, np.nan)
-    df["cafe_density"]   = df.get("osm_cafes", pd.Series(0, index=df.index)).fillna(0) / pop * 1000
-    df["approval_rate"]  = df.get("building_approvals_1yr", pd.Series(0, index=df.index)).fillna(0) / pop * 1000
-
-    # Z-score each component and compute weighted average
     z_parts: list[pd.Series] = []
-    total_weight = sum(components.values())
+    for col, w in components.items():
+        s = df.get(col, pd.Series(np.nan, index=df.index))
+        mu, sigma = s.mean(), s.std()
+        z = ((s - mu) / sigma).clip(-3, 3) if sigma and sigma > 0 else pd.Series(0.0, index=df.index)
+        z_parts.append(z * w)
 
-    for col, weight in components.items():
-        series = df.get(col, pd.Series(np.nan, index=df.index))
-        mean   = series.mean()
-        std    = series.std()
-        if std and std > 0:
-            z = (series - mean) / std
-        else:
-            z = pd.Series(0.0, index=df.index)
-        z = z.clip(-3, 3)
-        z_parts.append(z * weight)
-
-    df["gentrification_raw"] = sum(z_parts) / total_weight
+    df["gentrification_raw"] = sum(z_parts) / total_w
     return df
 
 
 def _compute_infra_per_capita(df: pd.DataFrame) -> pd.DataFrame:
-    """Infrastructure investment per capita ($ per resident)."""
-    pop = df.get("population", pd.Series(np.nan, index=df.index)).replace(0, np.nan)
-    df["infra_per_capita"] = df.get("infra_committed_aud", pd.Series(0.0, index=df.index)).fillna(0) / pop
+    pop = _s(df, "population").replace(0, np.nan)
+    df["infra_per_capita"] = _s(df, "infra_committed_aud") / pop
     return df
 
 
@@ -162,63 +157,62 @@ def _compute_infra_per_capita(df: pd.DataFrame) -> pd.DataFrame:
 # Phase 2 — Normalise to percentile ranks (0–100)
 # ===========================================================================
 
-def _pct(series: pd.Series) -> pd.Series:
-    """Convert a series to Australian-wide percentile rank (0–100, null-safe)."""
-    return series.rank(pct=True, na_option="keep") * 100
+def _pct(s: pd.Series) -> pd.Series:
+    return s.rank(pct=True, na_option="keep") * 100
 
+def _pct_inv(s: pd.Series) -> pd.Series:
+    return 100 - _pct(s)
 
-def _pct_inv(series: pd.Series) -> pd.Series:
-    """Inverted percentile rank — lower raw value → higher score."""
-    return 100 - _pct(series)
-
-
-def _fill50(series: pd.Series) -> pd.Series:
-    """Fill nulls with 50 (median rank — neutral assumption)."""
-    return series.fillna(50.0)
+def _fill50(s: pd.Series) -> pd.Series:
+    return s.fillna(50.0)
 
 
 def _normalise_inputs(df: pd.DataFrame) -> pd.DataFrame:
-    """Attach _pct columns for every metric used downstream."""
+    # ── Liveability ──────────────────────────────────────────────────────────
+    # ABS Business Register counts (accurate, replace unreliable Overture amenity_score)
+    df["biz_food_pct"]    = _fill50(_pct(_s(df, "biz_food_services")))     # cafes/restaurants/takeaway
+    df["biz_health_pct"]  = _fill50(_pct(_s(df, "biz_health_social")))     # GPs/pharmacies/allied health
+    df["biz_arts_pct"]    = _fill50(_pct(_s(df, "biz_arts_recreation")))   # gyms/sport/entertainment
+    df["biz_retail_pct"]  = _fill50(_pct(_s(df, "biz_retail_trade")))      # shops/supermarkets
 
-    # Liveability
-    df["amenity_pct"]          = (df.get("amenity_score", pd.Series(0.0, index=df.index)).fillna(0).clip(0, 10) * 10)
-    df["transit_pct"]          = _fill50(_pct(df["transit_score_raw"]))
-    df["gp_pharma_pct"]        = _fill50(_pct(
-        df.get("osm_medical_centers", pd.Series(0, index=df.index)).fillna(0) +
-        df.get("osm_pharmacies",      pd.Series(0, index=df.index)).fillna(0)
-    ))
-    df["hospital_pct"]         = _fill50(_pct(df.get("health_hospital_score", pd.Series(0.0, index=df.index)).fillna(0)))
-    df["park_pct"]             = _fill50(_pct(df.get("osm_parks", pd.Series(0, index=df.index)).fillna(0)))
+    df["transit_pct"]     = _fill50(_pct(df["transit_score_raw"]))
+    df["hospital_pct"]    = _fill50(_pct(_s(df, "health_hospital_score")))
+    df["park_pct"]        = _fill50(_pct(_s(df, "osm_parks")))             # OSM parks OK
 
-    # Education
-    df["icsea_pct"]            = _fill50(_pct(df.get("edu_avg_icsea", pd.Series(np.nan, index=df.index))))
-    df["top_school_pct"]       = _fill50(_pct(df.get("edu_top_school_count", pd.Series(0, index=df.index)).fillna(0)))
-    df["secondary_pct"]        = _fill50(_pct(df.get("edu_secondary_count", pd.Series(0, index=df.index)).fillna(0)))
-    df["tertiary_pct"]         = _fill50(_pct(df.get("edu_tertiary_count", pd.Series(0, index=df.index)).fillna(0)))
+    # ── Education ────────────────────────────────────────────────────────────
+    df["icsea_pct"]       = _fill50(_pct(_s(df, "edu_avg_icsea")))
+    df["top_school_pct"]  = _fill50(_pct(_s(df, "edu_top_school_count")))
+    df["secondary_pct"]   = _fill50(_pct(_s(df, "edu_secondary_count")))
+    df["tertiary_pct"]    = _fill50(_pct(_s(df, "edu_tertiary_count")))
 
-    # Growth
-    df["pop_growth_pct_rank"]  = _fill50(_pct(df.get("pop_growth_proj_pct", pd.Series(np.nan, index=df.index))))
-    df["infra_cap_pct"]        = _fill50(_pct(df.get("infra_per_capita", pd.Series(0.0, index=df.index)).fillna(0)))
-    df["approvals_pct"]        = _fill50(_pct(df.get("building_approvals_1yr", pd.Series(0, index=df.index)).fillna(0)))
-    df["gentrif_pct"]          = _fill50(_pct(df["gentrification_raw"]))
-    df["pda_pct"]              = _fill50(_pct(df.get("infra_pda_overlap", pd.Series(0.0, index=df.index)).fillna(0)))
+    # ── Growth ───────────────────────────────────────────────────────────────
+    df["pop_growth_pct_rank"]    = _fill50(_pct(_s(df, "pop_growth_proj_pct")))
+    df["infra_cap_pct"]          = _fill50(_pct(_s(df, "infra_per_capita")))
+    df["approvals_pct"]          = _fill50(_pct(_s(df, "building_approvals_1yr")))
+    df["gentrif_pct"]            = _fill50(_pct(df["gentrification_raw"]))
+    df["pda_pct"]                = _fill50(_pct(_s(df, "infra_pda_overlap")))
+    df["biz_construction_pct"]   = _fill50(_pct(_s(df, "biz_construction")))   # NEW
 
-    # Demographic
-    df["income_pct"]           = _fill50(_pct(df.get("median_income", pd.Series(np.nan, index=df.index))))
-    df["seifa_pct"]            = _fill50(_pct(df.get("seifa_irsad_decile", pd.Series(np.nan, index=df.index))))
-    df["degree_pct"]           = _fill50(_pct(df.get("uni_degree_pct", pd.Series(np.nan, index=df.index))))
-    df["unemp_pct"]            = _fill50(_pct_inv(df.get("unemployment_pct", pd.Series(np.nan, index=df.index))))
-    df["profess_pct"]          = _fill50(_pct(df.get("professionals_managers_pct", pd.Series(np.nan, index=df.index))))
+    # ── Demographic ──────────────────────────────────────────────────────────
+    df["income_pct"]      = _fill50(_pct(_s(df, "median_income")))
+    df["seifa_pct"]       = _fill50(_pct(_s(df, "seifa_irsad_decile")))
+    df["seifa_ieo_pct"]   = _fill50(_pct(_s(df, "seifa_ieo_decile")))          # NEW
+    df["degree_pct"]      = _fill50(_pct(_s(df, "uni_degree_pct")))
+    df["unemp_pct"]       = _fill50(_pct_inv(_s(df, "unemployment_pct")))
+    df["profess_pct"]     = _fill50(_pct(_s(df, "professionals_managers_pct")))
+    df["families_pct"]    = _fill50(_pct(_s(df, "families_with_children_pct"))) # NEW
 
-    # Housing
-    df["mortgage_stress_pct"]  = _fill50(_pct_inv(df.get("high_mortgage_stress_pct", pd.Series(np.nan, index=df.index))))
-    df["rent_stress_pct"]      = _fill50(_pct_inv(df.get("high_rent_stress_pct", pd.Series(np.nan, index=df.index))))
-    df["social_housing_pct_r"] = _fill50(_pct_inv(df.get("social_housing_pct", pd.Series(np.nan, index=df.index))))
-    df["hh_size_pct"]          = _fill50(_pct(df.get("avg_household_size", pd.Series(np.nan, index=df.index))))
+    # ── Housing ──────────────────────────────────────────────────────────────
+    df["mortgage_stress_pct"]    = _fill50(_pct_inv(_s(df, "high_mortgage_stress_pct")))
+    df["rent_stress_pct"]        = _fill50(_pct_inv(_s(df, "high_rent_stress_pct")))
+    df["social_housing_pct_r"]   = _fill50(_pct_inv(_s(df, "social_housing_pct")))
+    df["renters_pct_rank"]       = _fill50(_pct(_s(df, "renters_pct")))         # NEW — rental demand
+    df["rent_level_pct"]         = _fill50(_pct(_s(df, "median_rent_weekly")))  # NEW — rent income potential
+    df["hh_size_pct"]            = _fill50(_pct(_s(df, "avg_household_size")))
 
-    # Infrastructure
-    df["infra_aud_pct"]        = _fill50(_pct(df.get("infra_committed_aud", pd.Series(0.0, index=df.index)).fillna(0)))
-    df["infra_count_pct"]      = _fill50(_pct(df.get("infra_project_count", pd.Series(0, index=df.index)).fillna(0)))
+    # ── Infrastructure ───────────────────────────────────────────────────────
+    df["infra_aud_pct"]          = _fill50(_pct(_s(df, "infra_committed_aud")))
+    df["infra_count_pct"]        = _fill50(_pct(_s(df, "infra_project_count")))
 
     return df
 
@@ -228,21 +222,25 @@ def _normalise_inputs(df: pd.DataFrame) -> pd.DataFrame:
 # ===========================================================================
 
 def _dim(df: pd.DataFrame, weights: dict[str, float]) -> pd.Series:
-    """Weighted average of named _pct columns, output 0–10."""
     total_w = sum(weights.values())
-    result = pd.Series(0.0, index=df.index)
-    for col, w in weights.items():
-        result += df[col] * w
+    result  = sum(df[col] * w for col, w in weights.items())
     return (result / total_w / 10).clip(0, 10)
 
 
 def _score_liveability(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    ABS Business Register replaces unreliable Overture counts.
+    biz_food_services covers cafes + restaurants + takeaways (verified accurate).
+    biz_health_social covers GPs + pharmacies + allied health (Camp Hill: 215 vs Algester: 67).
+    """
     df["liveability_score"] = _dim(df, {
-        "amenity_pct":   35,
-        "transit_pct":   25,
-        "gp_pharma_pct": 15,
-        "hospital_pct":  10,
-        "park_pct":      15,
+        "biz_food_pct":   20,   # ABS food & beverage businesses
+        "biz_health_pct": 20,   # ABS health & medical businesses
+        "transit_pct":    20,   # Weighted PT stop count
+        "hospital_pct":   10,   # Public hospital adjacency (AIHW data)
+        "biz_arts_pct":   15,   # ABS arts & recreation (gyms, sport)
+        "biz_retail_pct": 10,   # ABS retail (shops, supermarkets)
+        "park_pct":       5,    # OSM parks (parks are OK in Overture)
     })
     return df
 
@@ -258,63 +256,66 @@ def _score_education(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _score_growth(df: pd.DataFrame) -> pd.DataFrame:
+    """Added biz_construction_pct — ABS construction business density
+    signals local development activity beyond govt projects."""
     df["growth_score"] = _dim(df, {
-        "pop_growth_pct_rank": 30,
-        "infra_cap_pct":       25,
-        "gentrif_pct":         20,
-        "approvals_pct":       15,
-        "pda_pct":             10,
+        "pop_growth_pct_rank":  25,
+        "infra_cap_pct":        25,
+        "gentrif_pct":          20,
+        "approvals_pct":        15,
+        "biz_construction_pct": 5,    # NEW — local construction activity
+        "pda_pct":              10,
     })
     return df
 
 
 def _score_demographic(df: pd.DataFrame) -> pd.DataFrame:
+    """Added families_with_children_pct (family demand) and seifa_ieo_decile
+    (education & occupation SEIFA — more targeted than IRSAD alone)."""
     df["demographic_score"] = _dim(df, {
-        "income_pct":  30,
-        "seifa_pct":   25,
-        "degree_pct":  20,
-        "unemp_pct":   15,
-        "profess_pct": 10,
+        "income_pct":   25,
+        "seifa_pct":    20,
+        "degree_pct":   15,
+        "unemp_pct":    15,
+        "profess_pct":  10,
+        "families_pct": 10,   # NEW — family demand for property
+        "seifa_ieo_pct": 5,   # NEW — education/occupation SEIFA
     })
     return df
 
 
 def _score_housing(df: pd.DataFrame) -> pd.DataFrame:
+    """Added renters_pct (rental demand signal) and rent_level_pct (rental income potential).
+    Higher renters % → more investor-relevant demand.
+    Higher median rent → stronger rental income base."""
     df["housing_score"] = _dim(df, {
-        "mortgage_stress_pct":  30,
-        "rent_stress_pct":      20,
-        "social_housing_pct_r": 15,
-        "hh_size_pct":          15,
-        # Note: separate_house_pct / flat_high_rise_pct omitted here —
-        # they are property-type neutral (house vs apartment is a user preference,
-        # not inherently better or worse). Include when Domain prices make
-        # value-per-m² calculation possible.
+        "mortgage_stress_pct":  25,   # lower stress = healthier market
+        "rent_stress_pct":      15,   # lower rent stress = sustainable rents
+        "social_housing_pct_r": 10,   # lower social housing = stable market
+        "renters_pct_rank":     25,   # NEW — high renters = strong investor demand
+        "rent_level_pct":       15,   # NEW — higher rent = more income potential
+        "hh_size_pct":          10,   # bigger households = more family demand
     })
-    # Rescale since weights sum to 80 not 100
-    df["housing_score"] = (df["housing_score"] * (100 / 80)).clip(0, 10)
     return df
 
 
 def _score_infrastructure(df: pd.DataFrame) -> pd.DataFrame:
+    """Added biz_construction_pct — local construction activity
+    supplements govt project pipeline as development signal."""
     df["infrastructure_score"] = _dim(df, {
-        "infra_aud_pct":   50,
-        "infra_count_pct": 30,
-        "pda_pct":         20,
+        "infra_aud_pct":         45,
+        "infra_count_pct":       30,
+        "pda_pct":               15,
+        "biz_construction_pct":  10,  # NEW — local dev activity proxy
     })
     return df
 
 
 def _score_composite(df: pd.DataFrame) -> pd.DataFrame:
-    """Weighted average of dimension scores → investment_score."""
-    result = pd.Series(0.0, index=df.index)
     total_w = sum(_COMPOSITE_WEIGHTS.values())
-    for col, w in _COMPOSITE_WEIGHTS.items():
-        result += df[col].fillna(5.0) * w  # missing dimension = neutral 5.0
-    df["investment_score"] = (result / total_w).clip(0, 10)
-
-    # Gentrification index: rescale gentrification_raw to 0–10 via percentile
+    result  = sum(df[col].fillna(5.0) * w for col, w in _COMPOSITE_WEIGHTS.items())
+    df["investment_score"]    = (result / total_w).clip(0, 10)
     df["gentrification_index"] = (df["gentrif_pct"] / 10).clip(0, 10)
-
     return df
 
 
@@ -323,29 +324,21 @@ def _score_composite(df: pd.DataFrame) -> pd.DataFrame:
 # ===========================================================================
 
 def _compute_risk_flags(df: pd.DataFrame) -> pd.DataFrame:
-    """Evaluate threshold rules; store as JSON-serialisable list per SA2."""
-
-    def _flag_col(condition_col: str, op: str, threshold: float, df: pd.DataFrame) -> pd.Series:
-        col = df.get(condition_col, pd.Series(np.nan, index=df.index)).fillna(np.nan)
-        if op == ">":
-            return col > threshold
-        if op == "<":
-            return col < threshold
-        if op == "==":
-            return col == threshold
-        if op == "pct_lt":
-            # Below a given Australian-wide percentile
-            pct_col = _pct(col)
-            return pct_col < threshold
+    def _flag(col: str, op: str, threshold: float) -> pd.Series:
+        s = df.get(col, pd.Series(np.nan, index=df.index)).fillna(np.nan)
+        if op == ">":       return s > threshold
+        if op == "<":       return s < threshold
+        if op == "==":      return s == threshold
+        if op == "pct_lt":  return _pct(s) < threshold
         return pd.Series(False, index=df.index)
 
-    flags_df = pd.DataFrame(index=df.index)
-    for flag_name, (col, op, thr) in _RISK_THRESHOLDS.items():
-        flags_df[flag_name] = _flag_col(col, op, thr, df)
+    flags_df = pd.DataFrame({
+        name: _flag(col, op, thr)
+        for name, (col, op, thr) in _RISK_THRESHOLDS.items()
+    }, index=df.index)
 
-    # Build list of raised flags per row
     df["risk_flags"] = [
-        [flag for flag in _RISK_THRESHOLDS if row.get(flag, False)]
+        [f for f in _RISK_THRESHOLDS if row.get(f, False)]
         for _, row in flags_df.iterrows()
     ]
     return df
