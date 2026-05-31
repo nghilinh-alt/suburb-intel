@@ -139,14 +139,26 @@ async def suburb_group_report(
             pct = school.icsea_percentile
             icsea = school.icsea
             if pct is not None:
-                if pct >= 75:   rating = "Top 25%"
-                elif pct >= 50: rating = "Top 50%"
-                elif pct >= 25: rating = "Average"
-                else:           rating = "Below average"
+                # 5% bands: "Top 5%", "Top 10%", ..., "Bottom 5%"
+                for threshold in [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]:
+                    if pct >= (100 - threshold):
+                        rating = f"Top {threshold}%"
+                        break
+                else:
+                    # Below median — show bottom bands
+                    for threshold in [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]:
+                        if pct < threshold:
+                            rating = f"Bottom {threshold}%"
+                            break
+                    else:
+                        rating = "Middle 50%"
             elif icsea is not None:
-                if icsea >= 1100:   rating = "Above average"
-                elif icsea >= 950:  rating = "Average"
-                else:               rating = "Below average"
+                if icsea >= 1130:   rating = "Top 10%"
+                elif icsea >= 1100: rating = "Top 20%"
+                elif icsea >= 1050: rating = "Top 35%"
+                elif icsea >= 1000: rating = "Top 50%"
+                elif icsea >= 950:  rating = "Bottom 40%"
+                else:               rating = "Bottom 20%"
             else:
                 rating = None
 

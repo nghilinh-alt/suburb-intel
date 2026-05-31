@@ -36,13 +36,16 @@ _DIRECTIONAL = frozenset({
 
 
 def _base_name(sa2_name: str) -> str:
-    """Return the base suburb name, stripping trailing ABS directional qualifier.
+    """Return the base suburb name for GROUPING, stripping trailing directional qualifier.
+
+    Used to group SA2s that split ONE suburb: "Keysborough - North" + "Keysborough - South" → "Keysborough".
+    Does NOT split genuinely combined SA2s ("Parkinson - Drewvale") — those are handled by _suburb_names().
 
     "Keysborough - North"        → "Keysborough"
     "Parramatta - South"         → "Parramatta"
-    "Perth (West) - Northbridge" → "Perth (West) - Northbridge"  (not directional)
-    "Tarneit - North"            → "Tarneit"
-    "North Sydney"               → "North Sydney"  (North is part of the name)
+    "Perth (West) - Northbridge" → "Perth (West) - Northbridge"  (kept as-is; parenthetical)
+    "Parkinson - Drewvale"       → "Parkinson - Drewvale"  (kept as-is; two real suburbs)
+    "North Sydney"               → "North Sydney"
     """
     if " - " in sa2_name:
         left, right = sa2_name.rsplit(" - ", 1)
@@ -50,6 +53,45 @@ def _base_name(sa2_name: str) -> str:
         if normalised in {d.replace("-", "") for d in _DIRECTIONAL}:
             return left.strip()
     return sa2_name
+
+
+def _suburb_names(sa2_name: str) -> list[str]:
+    """Return the individual suburb names that should get their own aggregate entry.
+
+    Handles three cases:
+    1. Plain single suburb: "Algester" → ["Algester"]
+    2. Directional ABS split: "Keysborough - North" → ["Keysborough"]  (grouped with South)
+    3. Two distinct suburbs in one SA2: "Parkinson - Drewvale" → ["Parkinson", "Drewvale"]
+
+    Note: SA2s with parenthetical qualifiers like "Perth (West) - Northbridge" stay combined
+    because "Perth (West)" is not a suburb name people would search for.
+    """
+    if " - " not in sa2_name:
+        return [sa2_name]
+
+    left, right = sa2_name.rsplit(" - ", 1)
+    right_norm = right.strip().lower().replace("-", "").replace(" ", "")
+
+    # Directional suffix → it's ONE suburb split for census size
+    if right_norm in {d.replace("-", "") for d in _DIRECTIONAL}:
+        return [left.strip()]
+
+    # Parenthetical parts → ABS area subdivision notation, keep combined
+    if "(" in left or "(" in right:
+        return [sa2_name]
+
+    # Three-suburb SA2s: "Balgowlah - Clontarf - Seaforth"
+    # Split all " - " parts (none are directional, none have parentheses)
+    parts = [p.strip() for p in sa2_name.split(" - ") if p.strip()]
+    # All parts must be non-directional for this to be a multi-suburb SA2
+    all_non_directional = all(
+        p.lower().replace("-", "").replace(" ", "") not in {d.replace("-", "") for d in _DIRECTIONAL}
+        for p in parts
+    )
+    if all_non_directional and len(parts) > 1:
+        return parts
+
+    return [sa2_name]
 
 
 def _slug(suburb_name: str, state: str) -> str:
@@ -94,13 +136,32 @@ def run_build(db: Session) -> str:
 
     logger.info("Loaded %d SA2s", len(rows))
 
-    # Group by (base_name, state)
+    # Step 1: Group SA2s that are directional splits of ONE suburb (e.g. Keysborough N+S)
+    # Key = (base_name, state) — only directional splits share the same base_name
     groups: dict[tuple[str, str], list] = {}
     for row in rows:
         key = (_base_name(row.sa2_name), row.state)
         groups.setdefault(key, []).append(row)
 
-    logger.info("Grouped into %d suburb entries", len(groups))
+    logger.info("Grouped into %d directional groups", len(groups))
+
+    # Step 2: Expand combined SA2s ("Parkinson - Drewvale") into individual suburb entries.
+    # For each group, if the SA2 name represents multiple real suburbs, create one entry
+    # per suburb name pointing to the same SA2 data.
+    expanded_groups: dict[tuple[str, str], list] = {}
+    for (group_name, state), members in groups.items():
+        # For single-SA2 groups, expand the SA2 name into individual suburb names
+        if len(members) == 1:
+            individual_names = _suburb_names(members[0].sa2_name)
+            for name in individual_names:
+                key = (name, state)
+                expanded_groups.setdefault(key, []).extend(members)
+        else:
+            # Multi-SA2 groups (directional splits like Keysborough N+S) — keep as-is
+            expanded_groups.setdefault((group_name, state), []).extend(members)
+
+    logger.info("Expanded to %d suburb entries (including individual suburb names from combined SA2s)", len(expanded_groups))
+    groups = expanded_groups
 
     # Clear and rebuild
     db.query(SuburbAggregate).delete(synchronize_session=False)
