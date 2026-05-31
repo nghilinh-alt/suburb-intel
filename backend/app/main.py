@@ -8,6 +8,7 @@ from app.api import rankings, search, suburb
 from app.api.osm_routes import router as osm_router
 from app.api.map import router as map_router
 from app.api.compare import router as compare_router
+from app.api.suburb_group import router as suburb_group_router
 
 app = FastAPI(
     title="Suburb Intelligence API",
@@ -40,7 +41,8 @@ app.include_router(suburb.router,   prefix="/suburb",   tags=["Suburb"])
 app.include_router(search.router,   prefix="/search",   tags=["Search"])
 app.include_router(rankings.router, prefix="/rankings", tags=["Rankings"])
 app.include_router(map_router,      prefix="/map",      tags=["Map"])
-app.include_router(compare_router,  prefix="/compare",  tags=["Compare"])
+app.include_router(compare_router,      prefix="/compare",      tags=["Compare"])
+app.include_router(suburb_group_router, prefix="/suburb-group", tags=["Suburb Group"])
 # OSM routes already declare `{suburb_name}` in each path, mount them under /search.
 app.include_router(osm_router, prefix="/search", tags=["OSM Amenities"])
 

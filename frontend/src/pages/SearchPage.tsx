@@ -2,12 +2,17 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 interface SearchResult {
-  sa2_code: string
-  sa2_name: string
+  // Suburb group fields (new primary format)
+  suburb_id?: string
+  suburb_name?: string
+  sa2_count?: number
+  is_aggregate?: boolean
+  // Legacy SA2 fields (used for exact code lookups)
+  sa2_code?: string
+  sa2_name?: string
   state: string
   population: number | null
-  median_income: number | null
-  median_age: number | null
+  investment_score?: number | null
 }
 
 const RECENT_KEY = 'suburb_recent_searches'
@@ -65,7 +70,12 @@ export default function SearchPage() {
   function handleSelect(r: SearchResult) {
     saveRecent(r)
     setRecent(getRecent())
-    navigate(`/suburb/${r.sa2_code}`)
+    // Route to suburb-group page if we have a suburb_id, else fallback to SA2
+    if (r.suburb_id) {
+      navigate(`/suburb-group/${r.suburb_id}`)
+    } else {
+      navigate(`/suburb/${r.sa2_code}`)
+    }
   }
 
   return (
@@ -119,12 +129,20 @@ export default function SearchPage() {
               }}
             >
               <div>
-                <div style={{ fontWeight: 600, fontSize: '16px' }}>{r.sa2_name}</div>
-                <div style={{ color: '#9ca0aa', fontSize: '13px' }}>SA2 {r.sa2_code}</div>
+                <div style={{ fontWeight: 600, fontSize: '16px' }}>{r.suburb_name ?? r.sa2_name}</div>
+                <div style={{ color: '#9ca0aa', fontSize: '13px' }}>
+                  {r.sa2_count && r.sa2_count > 1 ? `${r.sa2_count} areas · ` : ''}
+                  {r.sa2_code ? `SA2 ${r.sa2_code}` : ''}
+                </div>
               </div>
               <div style={{ textAlign: 'right', color: '#9ca0aa', fontSize: '13px' }}>
                 <div>{r.state}</div>
                 {r.population && <div>{r.population.toLocaleString()} residents</div>}
+                {r.investment_score != null && (
+                  <div style={{ color: r.investment_score >= 6.5 ? '#2ecc71' : r.investment_score >= 5 ? '#f39c12' : '#e74c3c', fontWeight: 700 }}>
+                    ★ {r.investment_score.toFixed(1)}
+                  </div>
+                )}
               </div>
             </button>
           ))}

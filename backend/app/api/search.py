@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.data_sources import AustralianDataSources
-from app.db.models import ABSCEntensMetrics, SA2Region
+from app.db.models import ABSCEntensMetrics, SA2Region, SuburbAggregate
 from app.db.session import get_db
 
 router = APIRouter()
@@ -31,11 +31,16 @@ async def search_suburbs(
     limit: int = Query(10, ge=1, le=50, description="Maximum results to return"),
     db: AsyncSession = Depends(get_db),
 ) -> List[Dict[str, Any]] | Dict[str, Any]:
-    """Search by partial suburb name, or exact lookup by SA2 code."""
+    """Search by partial suburb name, or exact lookup by SA2 code.
+
+    Returns suburb-group results (aggregated across SA2 splits) so that
+    'Keysborough' returns one entry rather than 'Keysborough - North' and
+    'Keysborough - South' separately.
+    """
     if _SA2_CODE_RE.match(query):
         return await _get_exact_sa2(query, db)
 
-    results = await _get_suburbs_by_name(db, query, state=state, limit=limit)
+    results = await _get_suburb_groups(db, query, state=state, limit=limit)
     if not results:
         raise HTTPException(
             status_code=404,
@@ -105,6 +110,39 @@ async def _get_exact_sa2(sa2_code: str, db: AsyncSession) -> Dict[str, Any]:
         "median_income": metrics.median_income if metrics else None,
         "median_age": metrics.median_age if metrics else None,
     }
+
+
+async def _get_suburb_groups(
+    db: AsyncSession,
+    query: str,
+    *,
+    state: Optional[str] = None,
+    limit: int = 10,
+) -> List[Dict[str, Any]]:
+    """Search suburb_aggregates by name — returns grouped suburb results."""
+    stmt = (
+        select(SuburbAggregate)
+        .where(SuburbAggregate.suburb_name.ilike(f"%{query}%"))
+        .order_by(SuburbAggregate.suburb_name)
+        .limit(limit)
+    )
+    if state:
+        stmt = stmt.where(SuburbAggregate.state == state.upper())
+
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        {
+            "suburb_id":    r.suburb_id,
+            "suburb_name":  r.suburb_name,
+            "state":        r.state,
+            "sa2_count":    r.sa2_count,
+            "sa2_codes":    r.sa2_codes,
+            "population":   r.population,
+            "investment_score": round(r.investment_score, 2) if r.investment_score else None,
+            "is_aggregate": r.sa2_count > 1,
+        }
+        for r in rows
+    ]
 
 
 async def _get_suburbs_by_name(

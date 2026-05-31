@@ -259,6 +259,52 @@ class School(Base):
     )
 
 
+class SuburbAggregate(Base):
+    """Population-weighted aggregate of all SA2s that share the same base suburb name.
+
+    Built by app/jobs/build_suburb_aggregates.py.
+    Single-SA2 suburbs also get a row (sa2_count=1) so search always hits this table.
+    """
+    __tablename__ = "suburb_aggregates"
+
+    suburb_id    = Column(Text, primary_key=True, comment="slug: 'keysborough-vic'")
+    suburb_name  = Column(Text, nullable=False,   comment="Display name: 'Keysborough'")
+    state        = Column(Text, nullable=False)
+    sa2_codes    = Column(JSON, nullable=False,   comment="List of SA2 codes in this group")
+    sa2_names    = Column(JSON, nullable=False,   comment="List of SA2 display names")
+    sa2_count    = Column(Integer, nullable=False)
+    population   = Column(Integer, nullable=True, comment="Total population across all SA2s")
+
+    # Population-weighted average dimension scores (0–10)
+    investment_score     = Column(Float, nullable=True)
+    liveability_score    = Column(Float, nullable=True)
+    education_score      = Column(Float, nullable=True)
+    growth_score         = Column(Float, nullable=True)
+    demographic_score    = Column(Float, nullable=True)
+    housing_score        = Column(Float, nullable=True)
+    infrastructure_score = Column(Float, nullable=True)
+    gentrification_index = Column(Float, nullable=True)
+
+    # Weighted census facts
+    median_income   = Column(Float, nullable=True)
+    median_age      = Column(Float, nullable=True)
+    unemployment_pct = Column(Float, nullable=True)
+    uni_degree_pct  = Column(Float, nullable=True)
+    pop_growth_proj_pct = Column(Float, nullable=True)
+
+    # Union of all constituent risk flags
+    risk_flags = Column(JSON, nullable=True)
+
+    score_version = Column(Text, nullable=True)
+    updated_at    = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_suburb_agg_state",  "state"),
+        Index("ix_suburb_agg_name",   "suburb_name"),
+        Index("ix_suburb_agg_inv",    "investment_score"),
+    )
+
+
 class SA2Zoning(Base):
     """Land use zoning breakdown per SA2, derived from state planning portal data.
 
