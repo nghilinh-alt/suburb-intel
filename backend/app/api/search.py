@@ -16,12 +16,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.data_sources import AustralianDataSources
-from app.db.models import ABSCEntensMetrics, SA2Region, SuburbAggregate
+from app.db.models import ABSCEntensMetrics, SA2Region, SuburbAggregate, PostcodeSA2Map
 from app.db.session import get_db
 
 router = APIRouter()
 
-_SA2_CODE_RE = re.compile(r"^\d{5,9}$")
+_SA2_CODE_RE  = re.compile(r"^\d{5,9}$")
+_POSTCODE_RE  = re.compile(r"^\d{4}$")
 
 
 @router.get("/")
@@ -39,6 +40,13 @@ async def search_suburbs(
     """
     if _SA2_CODE_RE.match(query):
         return await _get_exact_sa2(query, db)
+
+    # Postcode lookup — returns all suburb aggregates that overlap this postcode
+    if _POSTCODE_RE.match(query):
+        results = await _get_suburbs_by_postcode(db, query)
+        if results:
+            return results
+        # Fall through to name search if no postcode match
 
     results = await _get_suburb_groups(db, query, state=state, limit=limit)
     if not results:
@@ -110,6 +118,49 @@ async def _get_exact_sa2(sa2_code: str, db: AsyncSession) -> Dict[str, Any]:
         "median_income": metrics.median_income if metrics else None,
         "median_age": metrics.median_age if metrics else None,
     }
+
+
+async def _get_suburbs_by_postcode(
+    db: AsyncSession,
+    postcode: str,
+) -> List[Dict[str, Any]]:
+    """Return suburb aggregates whose SA2s overlap the given postcode."""
+    # Get all SA2 codes for this postcode, ordered by mesh block count (dominant first)
+    pc_stmt = (
+        select(PostcodeSA2Map.sa2_code, PostcodeSA2Map.is_dominant)
+        .where(PostcodeSA2Map.postcode == postcode)
+        .order_by(PostcodeSA2Map.is_dominant.desc(), PostcodeSA2Map.mb_count.desc())
+    )
+    pc_rows = (await db.execute(pc_stmt)).all()
+    if not pc_rows:
+        return []
+
+    sa2_codes = [r[0] for r in pc_rows]
+
+    # Find suburb aggregates that contain any of these SA2 codes
+    # suburb_aggregates.sa2_codes is a JSON array — use LIKE for SQLite compat
+    seen: dict[str, dict] = {}
+    for sa2_code in sa2_codes:
+        agg_stmt = (
+            select(SuburbAggregate)
+            .where(SuburbAggregate.sa2_codes.contains(sa2_code))
+        )
+        aggs = (await db.execute(agg_stmt)).scalars().all()
+        for agg in aggs:
+            if agg.suburb_id not in seen:
+                seen[agg.suburb_id] = {
+                    "suburb_id":      agg.suburb_id,
+                    "suburb_name":    agg.suburb_name,
+                    "state":          agg.state,
+                    "sa2_count":      agg.sa2_count,
+                    "sa2_codes":      agg.sa2_codes,
+                    "population":     agg.population,
+                    "investment_score": round(agg.investment_score, 2) if agg.investment_score else None,
+                    "is_aggregate":   agg.sa2_count > 1,
+                    "postcode":       postcode,
+                }
+
+    return list(seen.values())
 
 
 async def _get_suburb_groups(

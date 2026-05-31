@@ -50,7 +50,7 @@ export default function SearchPage() {
       setLoading(true)
       setError(null)
       try {
-        const res = await fetch(`/api/search?query=${encodeURIComponent(query.trim())}&limit=10`)
+        const res = await fetch(`/api/search/?query=${encodeURIComponent(query.trim())}&limit=10`)
         if (!res.ok) {
           const body = await res.json().catch(() => null)
           throw new Error(body?.detail || 'Search failed')
@@ -91,7 +91,7 @@ export default function SearchPage() {
           type="text"
           value={query}
           onChange={e => setQuery(e.target.value)}
-          placeholder="Type a suburb name (e.g. Parramatta, Tarneit, Rhodes…)"
+          placeholder="Suburb name or postcode (e.g. Parramatta, Tarneit, 4115…)"
           autoFocus
           style={{
             width: '100%', boxSizing: 'border-box',
@@ -130,9 +130,10 @@ export default function SearchPage() {
             >
               <div>
                 <div style={{ fontWeight: 600, fontSize: '16px' }}>{r.suburb_name ?? r.sa2_name}</div>
-                <div style={{ color: '#9ca0aa', fontSize: '13px' }}>
-                  {r.sa2_count && r.sa2_count > 1 ? `${r.sa2_count} areas · ` : ''}
-                  {r.sa2_code ? `SA2 ${r.sa2_code}` : ''}
+                <div style={{ color: '#9ca0aa', fontSize: '13px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginTop: '2px' }}>
+                  {r.postcode && <span style={{ padding: '1px 6px', backgroundColor: '#2a3a4a', color: '#7ec8e3', borderRadius: '4px', fontSize: '11px' }}>📮 {r.postcode}</span>}
+                  {r.sa2_count && r.sa2_count > 1 ? <span>{r.sa2_count} areas</span> : null}
+                  {r.sa2_code ? <span>SA2 {r.sa2_code}</span> : null}
                 </div>
               </div>
               <div style={{ textAlign: 'right', color: '#9ca0aa', fontSize: '13px' }}>
@@ -175,7 +176,7 @@ export default function SearchPage() {
       {!query && recent.length === 0 && (
         <div style={{ color: '#9ca0aa', fontSize: '15px', lineHeight: 1.8 }}>
           <p>Try searching for:</p>
-          {['Parramatta', 'Tarneit', 'Newstead', 'Rhodes', 'Subiaco'].map(s => (
+          {['Parramatta', 'Tarneit', 'Newstead', '4115', '3030', 'Subiaco'].map(s => (
             <button key={s} onClick={() => setQuery(s)}
               style={{ marginRight: '10px', marginBottom: '8px', padding: '8px 16px', backgroundColor: '#343b47', color: '#d1d5da', border: '1px solid #4b566a', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
               {s}

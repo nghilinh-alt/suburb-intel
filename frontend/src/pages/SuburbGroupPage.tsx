@@ -35,6 +35,25 @@ interface SA2Entry {
   risk_flags: string[]
 }
 
+interface Rank {
+  national_rank: number
+  national_total: number
+  national_pct: number
+  state_rank: number
+  state_total: number
+}
+
+interface PeerSuburb {
+  suburb_id: string
+  suburb_name: string
+  state: string
+  population: number | null
+  investment_score: number | null
+  liveability_score: number | null
+  growth_score: number | null
+  education_score: number | null
+}
+
 interface GroupReport {
   suburb_id: string
   suburb_name: string
@@ -52,6 +71,8 @@ interface GroupReport {
   schools_adjacent: SchoolEntry[]
   adjacent_has_train: boolean
   adjacent_train_suburbs: string[]
+  rank: Rank
+  peer_suburbs: PeerSuburb[]
   risk_flags: string[]
   tags: string[]
   insight: string
@@ -553,7 +574,8 @@ export default function SuburbGroupPage() {
 function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: (p: string) => void }) {
   const { suburb_name, state: stateCode, scores, facts, intermediates, insight, risk_flags, tags,
     sa2_count, sa2_names, sa2_codes, sa2_breakdown, population,
-    schools_in_suburb, schools_adjacent, adjacent_has_train, adjacent_train_suburbs } = data
+    schools_in_suburb, schools_adjacent, adjacent_has_train, adjacent_train_suburbs,
+    rank, peer_suburbs } = data
   const isMulti = sa2_count > 1
 
   return (
@@ -599,6 +621,46 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
         </div>
         <div style={{ flex: 1, color: '#d1d5da', fontSize: '16px', lineHeight: 1.7 }}>{insight}</div>
       </div>
+
+      {/* Percentile rank bar */}
+      {rank && (
+        <div style={{ backgroundColor: '#1e2530', border: '1px solid #4b566a', borderRadius: '10px', padding: '18px 24px', marginBottom: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ color: '#d1d5da', fontSize: '14px' }}>
+              <strong style={{ color: '#f8f8f2' }}>#{rank.national_rank}</strong>
+              <span style={{ color: '#9ca0aa' }}> of {rank.national_total.toLocaleString()} suburbs nationally</span>
+              <span style={{ margin: '0 10px', color: '#4b566a' }}>·</span>
+              <strong style={{ color: '#f8f8f2' }}>#{rank.state_rank}</strong>
+              <span style={{ color: '#9ca0aa' }}> of {rank.state_total.toLocaleString()} in {stateCode}</span>
+            </div>
+            <span style={{
+              padding: '3px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 700,
+              backgroundColor: rank.national_pct >= 75 ? '#1a3a1a' : rank.national_pct >= 50 ? '#2a2a1a' : '#3a2a1a',
+              color: rank.national_pct >= 75 ? '#2ecc71' : rank.national_pct >= 50 ? '#f39c12' : '#e67e22',
+            }}>Top {(100 - rank.national_pct + 0.1).toFixed(0)}% nationally</span>
+          </div>
+          {/* Rank bar */}
+          <div style={{ position: 'relative', height: '8px', backgroundColor: '#343b47', borderRadius: '4px' }}>
+            <div style={{
+              position: 'absolute', left: 0, top: 0, height: '100%',
+              width: `${rank.national_pct}%`,
+              background: 'linear-gradient(to right, #e74c3c, #f39c12, #2ecc71)',
+              borderRadius: '4px',
+            }} />
+            <div style={{
+              position: 'absolute', top: '-3px',
+              left: `calc(${rank.national_pct}% - 7px)`,
+              width: '14px', height: '14px',
+              backgroundColor: scoreColor(scores.investment_score),
+              border: '2px solid #1e2530',
+              borderRadius: '50%',
+            }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#4b566a', marginTop: '4px' }}>
+            <span>Lowest</span><span>Highest</span>
+          </div>
+        </div>
+      )}
 
       {/* Score Breakdown — clean cards */}
       <h2 style={{ fontSize: '22px', marginBottom: '16px' }}>Score Breakdown</h2>
@@ -659,6 +721,40 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
       <IntelPanel emoji="☕" label="Gentrification" dimKey="gentrification_index"  score={scores.gentrification_index}  sa2Breakdown={sa2_breakdown} isMulti={isMulti}>
         <GentrificationSection score={scores.gentrification_index} facts={facts} />
       </IntelPanel>
+
+      {/* Peer suburbs */}
+      {peer_suburbs && peer_suburbs.length > 0 && (
+        <div style={{ marginBottom: '48px' }}>
+          <h2 style={{ fontSize: '22px', marginBottom: '8px' }}>Similar Suburbs in {stateCode}</h2>
+          <p style={{ color: '#9ca0aa', fontSize: '14px', marginBottom: '16px' }}>
+            Suburbs with comparable investment profiles — useful for benchmarking or finding alternatives.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
+            {peer_suburbs.map(p => (
+              <a key={p.suburb_id} href={`/suburb-group/${p.suburb_id}`} style={{ textDecoration: 'none' }}>
+                <div style={{ backgroundColor: '#343b47', border: '1px solid #4b566a', borderRadius: '10px', padding: '16px', cursor: 'pointer' }}>
+                  <div style={{ fontWeight: 600, color: '#f8f8f2', fontSize: '15px', marginBottom: '4px' }}>{p.suburb_name}</div>
+                  <div style={{ color: '#9ca0aa', fontSize: '12px', marginBottom: '10px' }}>{p.state}{p.population ? ` · ${p.population.toLocaleString()}` : ''}</div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <span style={{ fontSize: '22px', fontWeight: 800, color: scoreColor(p.investment_score) }}>{fv(p.investment_score)}</span>
+                    <div style={{ flex: 1 }}>
+                      {(['liveability_score', 'growth_score', 'education_score'] as const).map(k => (
+                        <div key={k} style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
+                          <div style={{ fontSize: '10px', color: '#9ca0aa', width: '54px' }}>{k.replace('_score','').replace('liveability','livab.').replace('education','educ.')}</div>
+                          <div style={{ flex: 1, height: '3px', backgroundColor: '#4b566a', borderRadius: '2px' }}>
+                            <div style={{ height: '100%', width: `${(p[k] ?? 0) * 10}%`, backgroundColor: scoreColor(p[k]), borderRadius: '2px' }} />
+                          </div>
+                          <div style={{ fontSize: '10px', color: scoreColor(p[k]), width: '22px', textAlign: 'right' }}>{fv(p[k])}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Paywall */}
       <div style={{ marginTop: '48px', textAlign: 'center', backgroundColor: '#1e2530', border: '1px solid #4b566a', padding: '48px', borderRadius: '12px' }}>

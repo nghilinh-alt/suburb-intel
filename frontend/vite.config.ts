@@ -9,7 +9,7 @@ export default defineConfig({
       // The frontend hits /api/<path> to dodge CORS in dev; vite strips the
       // /api prefix so it forwards to <backend>/<path>.
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },

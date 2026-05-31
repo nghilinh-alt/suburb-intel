@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import func, text
 from app.db.models import ABSCEntensMetrics, SuburbAggregate, SuburbScore, SA2Region, School, SA2SchoolLink
 from app.db.session import get_db
 
@@ -192,6 +193,62 @@ async def suburb_group_report(
     else:
         adjacent_train_suburbs = []
 
+    # ── Percentile rank ───────────────────────────────────────────────────
+    # National rank: how does this suburb compare to all 2,300 aggregates?
+    inv = agg.investment_score or 0
+    nat_rank_stmt = text("""
+        SELECT COUNT(*) FROM suburb_aggregates
+        WHERE investment_score IS NOT NULL AND investment_score > :score
+    """)
+    nat_above = (await db.execute(nat_rank_stmt, {"score": inv})).scalar() or 0
+    nat_total_stmt = text("SELECT COUNT(*) FROM suburb_aggregates WHERE investment_score IS NOT NULL")
+    nat_total = (await db.execute(nat_total_stmt)).scalar() or 1
+    nat_rank  = nat_above + 1
+    nat_pct   = round((1 - nat_above / nat_total) * 100, 1)  # percentile (100 = best)
+
+    # State rank
+    state_rank_stmt = text("""
+        SELECT COUNT(*) FROM suburb_aggregates
+        WHERE state = :state AND investment_score IS NOT NULL AND investment_score > :score
+    """)
+    state_above = (await db.execute(state_rank_stmt, {"state": agg.state, "score": inv})).scalar() or 0
+    state_total_stmt = text("SELECT COUNT(*) FROM suburb_aggregates WHERE state = :state AND investment_score IS NOT NULL")
+    state_total = (await db.execute(state_total_stmt, {"state": agg.state})).scalar() or 1
+    state_rank  = state_above + 1
+
+    # ── Peer suburbs ──────────────────────────────────────────────────────
+    # 5 suburbs with similar investment score in the same state (±1 point, exclude self)
+    score_band_lo = max(0, inv - 1.0)
+    score_band_hi = min(10, inv + 1.0)
+    peers_stmt = text("""
+        SELECT suburb_id, suburb_name, state, population, investment_score,
+               liveability_score, growth_score, education_score
+        FROM suburb_aggregates
+        WHERE state = :state
+          AND suburb_id != :self_id
+          AND investment_score BETWEEN :lo AND :hi
+          AND investment_score IS NOT NULL
+        ORDER BY ABS(investment_score - :score)
+        LIMIT 5
+    """)
+    peer_rows = (await db.execute(peers_stmt, {
+        "state": agg.state, "self_id": suburb_id,
+        "lo": score_band_lo, "hi": score_band_hi, "score": inv,
+    })).fetchall()
+    peers = [
+        {
+            "suburb_id":       r[0],
+            "suburb_name":     r[1],
+            "state":           r[2],
+            "population":      r[3],
+            "investment_score": _r(r[4]),
+            "liveability_score": _r(r[5]),
+            "growth_score":    _r(r[6]),
+            "education_score": _r(r[7]),
+        }
+        for r in peer_rows
+    ]
+
     scores_agg = {
         "investment_score":     _r(agg.investment_score),
         "liveability_score":    _r(agg.liveability_score),
@@ -227,6 +284,15 @@ async def suburb_group_report(
             **top_facts_detail,
         },
         "intermediates": top_intermediates,
+
+        "rank": {
+            "national_rank":  nat_rank,
+            "national_total": nat_total,
+            "national_pct":   nat_pct,
+            "state_rank":     state_rank,
+            "state_total":    state_total,
+        },
+        "peer_suburbs": peers,
 
         "schools_in_suburb":  schools_in,
         "schools_adjacent":   schools_adj[:8],  # cap adjacent list

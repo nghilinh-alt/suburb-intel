@@ -259,6 +259,23 @@ class School(Base):
     )
 
 
+class PostcodeSA2Map(Base):
+    """Maps Australian postcodes to SA2 regions (ABS 2021 mesh block correspondence).
+
+    One postcode can span multiple SA2s — all are stored. is_dominant=1 marks
+    the SA2 that contains the most mesh blocks for that postcode.
+    Built by app/jobs/build_postcode_map.py.
+    """
+    __tablename__ = "postcode_sa2_map"
+
+    postcode  = Column(Text, primary_key=True)
+    sa2_code  = Column(Text, ForeignKey("sa2_regions.sa2_code"), primary_key=True)
+    mb_count  = Column(Integer, nullable=True, comment="Number of mesh blocks in this postcode that fall in this SA2")
+    is_dominant = Column(Integer, nullable=True, comment="1 if this SA2 has the most mesh blocks for this postcode")
+
+    __table_args__ = (Index("ix_postcode_sa2_postcode", "postcode"),)
+
+
 class SuburbAggregate(Base):
     """Population-weighted aggregate of all SA2s that share the same base suburb name.
 
