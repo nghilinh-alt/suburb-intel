@@ -83,6 +83,13 @@ async def suburb_group_report(
             # Key census facts for dimension explanations
             "facts": {
                 "population":               pop,
+                # ABS Business Register counts (more accurate than Overture)
+                "biz_food_services":  census.biz_food_services  if census else None,
+                "biz_health_social":  census.biz_health_social  if census else None,
+                "biz_retail_trade":   census.biz_retail_trade   if census else None,
+                "biz_arts_recreation":census.biz_arts_recreation if census else None,
+                "biz_other_services": census.biz_other_services  if census else None,
+                "biz_total":          census.biz_total           if census else None,
                 "median_income":            census.median_income if census else None,
                 "median_age":               _r(census.median_age) if census else None,
                 "unemployment_pct":         _r(census.unemployment_pct) if census else None,

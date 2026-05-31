@@ -193,6 +193,7 @@ function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSubur
   adjacentTrainSuburbs: string[]
 }) {
   const hasTrain = (facts.pt_stop_train ?? 0) > 0
+  const hasBizData = facts.biz_food_services != null
 
   let analysis = ''
   if ((score ?? 0) >= 7.5) {
@@ -206,6 +207,37 @@ function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSubur
   return (
     <>
       <Analysis>{analysis}</Analysis>
+
+      {/* ABS Business Register counts */}
+      {hasBizData && (
+        <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '16px', marginBottom: '14px' }}>
+          <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+            Registered Businesses <span style={{ fontSize: '10px', color: '#4b566a', textTransform: 'none' }}>(ABS Business Register, June 2025)</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '8px' }}>
+            {[
+              { label: 'Food & Beverage', value: facts.biz_food_services, icon: '🍽️', note: 'cafes, restaurants, takeaway' },
+              { label: 'Health & Medical', value: facts.biz_health_social, icon: '🏥', note: 'GPs, pharmacies, allied health' },
+              { label: 'Retail', value: facts.biz_retail_trade, icon: '🛍️', note: 'shops of all types' },
+              { label: 'Arts & Recreation', value: facts.biz_arts_recreation, icon: '🏋️', note: 'gyms, sport, entertainment' },
+              { label: 'Other Services', value: facts.biz_other_services, icon: '🔧', note: 'mechanics, hair, laundry' },
+            ].map(({ label, value, icon, note }) => value != null && value > 0 ? (
+              <div key={label} style={{ backgroundColor: '#2a3040', borderRadius: '6px', padding: '10px 12px' }}>
+                <div style={{ fontSize: '18px', marginBottom: '2px' }}>{icon} <span style={{ fontSize: '20px', fontWeight: 700, color: '#f8f8f2' }}>{value}</span></div>
+                <div style={{ fontSize: '12px', color: '#d1d5da', fontWeight: 500 }}>{label}</div>
+                <div style={{ fontSize: '11px', color: '#9ca0aa' }}>{note}</div>
+              </div>
+            ) : null)}
+          </div>
+          {facts.biz_total != null && (
+            <div style={{ marginTop: '10px', fontSize: '12px', color: '#9ca0aa' }}>
+              {facts.biz_total.toLocaleString()} total registered businesses in this SA2
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Public transport */}
       <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '16px', marginBottom: '14px' }}>
         <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>Public Transport</div>
         {hasTrain ? (
@@ -219,10 +251,6 @@ function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSubur
           </div>
         )}
         <div style={{ color: '#9ca0aa', fontSize: '13px' }}>Bus services present — route count data coming soon</div>
-      </div>
-      <div style={{ fontSize: '12px', color: '#4b566a', fontStyle: 'italic' }}>
-        ℹ️ Café, restaurant and medical counts are sourced from Overture Maps and may not reflect all local businesses.
-        <a href="#" style={{ color: '#4b8ac4', marginLeft: '6px' }}>Learn more</a>
       </div>
     </>
   )
