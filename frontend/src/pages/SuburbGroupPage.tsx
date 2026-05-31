@@ -14,6 +14,17 @@ interface Scores {
   gentrification_index: number | null
 }
 
+interface SchoolEntry {
+  name: string
+  sector: string | null
+  school_type: string | null
+  icsea: number | null
+  icsea_percentile: number | null
+  rating: string | null
+  in_suburb: boolean
+  total_enrolments: number | null
+}
+
 interface SA2Entry {
   sa2_code: string
   sa2_name: string
@@ -37,11 +48,14 @@ interface GroupReport {
   sa2_breakdown: SA2Entry[]
   facts: Record<string, number | null>
   intermediates: Record<string, number | null>
+  schools_in_suburb: SchoolEntry[]
+  schools_adjacent: SchoolEntry[]
+  adjacent_has_train: boolean
+  adjacent_train_suburbs: string[]
   risk_flags: string[]
   tags: string[]
   insight: string
   note: string | null
-  score_version: string | null
 }
 
 type PageState =
@@ -51,13 +65,11 @@ type PageState =
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function fmt(v: number | null | undefined, dp = 1, suffix = '') {
-  if (v == null) return '—'
-  return `${v.toFixed(dp)}${suffix}`
-}
+const fv = (v: number | null | undefined, dp = 1, sfx = '') =>
+  v != null && !isNaN(v) ? `${v.toFixed(dp)}${sfx}` : '—'
 
-function fmtAUD(v: number | null) {
-  if (!v) return '—'
+const fAUD = (v: number | null) => {
+  if (!v) return null
   if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`
   if (v >= 1e6) return `$${(v / 1e6).toFixed(0)}M`
   return `$${Math.round(v).toLocaleString()}`
@@ -70,107 +82,63 @@ function scoreColor(v: number | null) {
   return '#e74c3c'
 }
 
-// Key facts shown under each dimension score card
-function getDimFacts(key: string, intermediates: Record<string, number | null>, facts: Record<string, number | null>): string[] {
-  switch (key) {
-    case 'liveability_score': return [
-      `${facts.osm_cafes ?? '—'} cafes · ${facts.osm_restaurants ?? '—'} restaurants`,
-      `${facts.pt_stop_train ?? 0} train · ${facts.pt_stop_tram ?? 0} tram · ${facts.pt_stop_bus ?? '—'} bus stops`,
-      `${intermediates.health_gp_count ?? '—'} GP clinics · ${facts.osm_pharmacies ?? '—'} pharmacies`,
-      `${facts.osm_parks ?? '—'} parks · ${facts.osm_gyms ?? '—'} gyms`,
-    ]
-    case 'growth_score': return [
-      `${fmt(facts.pop_growth_proj_pct, 1, '%')} population growth to 2031`,
-      `${facts.building_approvals_1yr ?? '—'} building approvals (1yr)`,
-      intermediates.infra_project_count
-        ? `${intermediates.infra_project_count} active govt projects · ${fmtAUD(intermediates.infra_committed_aud)} committed`
-        : 'No committed govt projects nearby',
-    ]
-    case 'education_score': return [
-      `Avg school ICSEA: ${fmt(intermediates.edu_avg_icsea, 0)}`,
-      `${intermediates.edu_top_school_count ?? '—'} top schools (ICSEA ≥ 1100)`,
-      `${intermediates.edu_secondary_count ?? '—'} secondary schools · ${intermediates.edu_tertiary_count ?? '—'} uni/TAFE nearby`,
-    ]
-    case 'demographic_score': return [
-      `Median income: ${facts.median_income ? `$${Math.round(facts.median_income).toLocaleString()}` : '—'}`,
-      `Uni degree: ${fmt(facts.uni_degree_pct, 1, '%')} · Professionals: ${fmt(facts.professionals_managers_pct, 1, '%')}`,
-      `Unemployment: ${fmt(facts.unemployment_pct, 1, '%')} · SEIFA IEO decile: ${facts.seifa_ieo_decile ?? '—'}/10`,
-    ]
-    case 'housing_score': return [
-      `Mortgage stress: ${fmt(facts.high_mortgage_stress_pct, 1, '%')} · Rent stress: ${fmt(facts.high_rent_stress_pct, 1, '%')}`,
-      `${fmt(facts.separate_house_pct, 1, '%')} houses · ${fmt(facts.flat_apartment_pct, 1, '%')} apartments`,
-      `${fmt(facts.renters_pct, 1, '%')} renters · ${fmt(facts.social_housing_pct, 1, '%')} social housing`,
-    ]
-    case 'infrastructure_score': return [
-      intermediates.infra_committed_aud
-        ? `${fmtAUD(intermediates.infra_committed_aud)} committed investment`
-        : 'No committed govt investment nearby',
-      `${intermediates.infra_project_count ?? 0} active infrastructure projects`,
-      `Transit score: ${fmt(intermediates.transit_score_raw, 0)} (train×4 + tram×3 + bus×1)`,
-    ]
-    case 'gentrification_index': return [
-      `Residential turnover (1yr): ${fmt(facts.moved_in_1yr_pct, 1, '%')}`,
-      `Professionals: ${fmt(facts.professionals_managers_pct, 1, '%')} · Degree holders: ${fmt(facts.uni_degree_pct, 1, '%')}`,
-      `Cafes per 1k residents · Building activity · Pop. growth projection`,
-    ]
-    default: return []
-  }
+function signalBadge(score: number | null) {
+  if (score == null) return { label: 'No data', bg: '#3a3a4a', color: '#9ca0aa' }
+  if (score >= 7.5) return { label: '✓ Strong signal', bg: '#1a3a1a', color: '#2ecc71' }
+  if (score >= 6.0) return { label: '↗ Positive',      bg: '#2a3020', color: '#a8e063' }
+  if (score >= 5.0) return { label: '→ Neutral',       bg: '#2a2a1a', color: '#f39c12' }
+  if (score >= 3.5) return { label: '↘ Caution',       bg: '#3a2a1a', color: '#e67e22' }
+  return                    { label: '✗ Risk factor',  bg: '#3a1a1a', color: '#e74c3c' }
 }
-
-const DIMENSIONS = [
-  { key: 'liveability_score',    label: 'Liveability',     desc: 'Amenity access, transit, healthcare, parks' },
-  { key: 'growth_score',         label: 'Growth',          desc: 'Population growth, investment pipeline, gentrification' },
-  { key: 'education_score',      label: 'Education',       desc: 'School quality, coverage of all levels' },
-  { key: 'demographic_score',    label: 'Demographics',    desc: 'Income, SEIFA, workforce education' },
-  { key: 'housing_score',        label: 'Housing Market',  desc: 'Mortgage/rent stress, dwelling character' },
-  { key: 'infrastructure_score', label: 'Infrastructure',  desc: 'Committed government investment pipeline' },
-  { key: 'gentrification_index', label: 'Gentrification',  desc: 'Composite social uplift signal' },
-]
 
 // ── Components ─────────────────────────────────────────────────────────────
 
-function DimensionCard({
-  dimKey, label, value, facts, intermediates, sa2Breakdown, isMulti,
-}: {
-  dimKey: string
-  label: string
-  value: number | null
-  facts: Record<string, number | null>
-  intermediates: Record<string, number | null>
-  sa2Breakdown: SA2Entry[]
-  isMulti: boolean
-}) {
+function ScoreCard({ label, value, desc }: { label: string; value: number | null; desc: string }) {
   const color = scoreColor(value)
-  const pct   = value != null ? (value / 10) * 100 : 0
-  const subFacts = getDimFacts(dimKey, intermediates, facts)
-
   return (
-    <div style={{ backgroundColor: '#343b47', borderRadius: '10px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      {/* Header */}
-      <div style={{ fontSize: '12px', color: '#9ca0aa', textTransform: 'uppercase', letterSpacing: '1px' }}>{label}</div>
-      <div style={{ fontSize: '40px', fontWeight: 700, color, lineHeight: 1 }}>{fmt(value)}</div>
+    <div style={{ backgroundColor: '#343b47', borderRadius: '10px', padding: '20px' }}>
+      <div style={{ fontSize: '12px', color: '#9ca0aa', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '6px' }}>{label}</div>
+      <div style={{ fontSize: '42px', fontWeight: 700, color, lineHeight: 1 }}>{fv(value)}</div>
+      <div style={{ height: '4px', backgroundColor: '#4b566a', borderRadius: '2px', margin: '10px 0 8px' }}>
+        <div style={{ height: '100%', width: `${value != null ? (value / 10) * 100 : 0}%`, backgroundColor: color, borderRadius: '2px' }} />
+      </div>
+      <p style={{ color: '#9ca0aa', fontSize: '12px', margin: 0 }}>{desc}</p>
+    </div>
+  )
+}
 
-      {/* Progress bar */}
-      <div style={{ height: '4px', backgroundColor: '#4b566a', borderRadius: '2px' }}>
-        <div style={{ height: '100%', width: `${pct}%`, backgroundColor: color, borderRadius: '2px' }} />
+function IntelPanel({ emoji, label, score, children, sa2Breakdown, dimKey, isMulti }: {
+  emoji: string; label: string; score: number | null
+  children: React.ReactNode
+  sa2Breakdown: SA2Entry[]; dimKey: string; isMulti: boolean
+}) {
+  const badge = signalBadge(score)
+  const color = scoreColor(score)
+  return (
+    <div style={{ backgroundColor: '#2a3040', border: '1px solid #4b566a', borderRadius: '12px', padding: '28px', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '18px', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '22px' }}>{emoji}</span>
+        <h3 style={{ margin: 0, fontSize: '20px', color: '#f8f8f2' }}>{label}</h3>
+        <span style={{ fontSize: '28px', fontWeight: 800, color }}>{fv(score)}<span style={{ fontSize: '14px', color: '#9ca0aa', fontWeight: 400 }}>/10</span></span>
+        <span style={{ padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 700, backgroundColor: badge.bg, color: badge.color }}>{badge.label}</span>
       </div>
 
-      {/* Per-SA2 breakdown for multi-area suburbs */}
-      {isMulti && sa2Breakdown.length > 0 && (
-        <div style={{ borderTop: '1px solid #4b566a', paddingTop: '8px' }}>
+      {/* Per-area comparison (multi-SA2 only) */}
+      {isMulti && sa2Breakdown.length > 1 && (
+        <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '14px 16px', marginBottom: '18px' }}>
+          <div style={{ fontSize: '11px', color: '#9ca0aa', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>By area</div>
           {sa2Breakdown.map(sa2 => {
             const v = sa2.scores[dimKey as keyof Scores]
             const c = scoreColor(v)
-            const w = v != null ? (v / 10) * 100 : 0
             const shortName = sa2.sa2_name.replace(/^.+ - /, '')
             return (
-              <div key={sa2.sa2_code} style={{ marginBottom: '6px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '3px' }}>
-                  <span style={{ color: '#9ca0aa' }}>{shortName}</span>
-                  <span style={{ color: c, fontWeight: 600 }}>{fmt(v)}</span>
+              <div key={sa2.sa2_code} style={{ marginBottom: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
+                  <span style={{ color: '#d1d5da' }}>{shortName}{sa2.population ? ` · ${sa2.population.toLocaleString()} residents` : ''}</span>
+                  <span style={{ color: c, fontWeight: 700 }}>{fv(v)}</span>
                 </div>
-                <div style={{ height: '3px', backgroundColor: '#4b566a', borderRadius: '2px' }}>
-                  <div style={{ height: '100%', width: `${w}%`, backgroundColor: c, borderRadius: '2px', opacity: 0.7 }} />
+                <div style={{ height: '5px', backgroundColor: '#4b566a', borderRadius: '3px' }}>
+                  <div style={{ height: '100%', width: `${v != null ? (v / 10) * 100 : 0}%`, backgroundColor: c, borderRadius: '3px' }} />
                 </div>
               </div>
             )
@@ -178,17 +146,369 @@ function DimensionCard({
         </div>
       )}
 
-      {/* Key input facts */}
-      {subFacts.length > 0 && (
-        <div style={{ borderTop: '1px solid #4b566a', paddingTop: '8px' }}>
-          {subFacts.filter(f => f && !f.includes('undefined') && !f.includes('NaN')).map((fact, i) => (
-            <div key={i} style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '3px', lineHeight: 1.4 }}>
-              {fact}
-            </div>
-          ))}
+      {children}
+    </div>
+  )
+}
+
+function Bullet({ children }: { children: React.ReactNode }) {
+  return (
+    <span style={{ display: 'inline-block', padding: '5px 12px', backgroundColor: '#343b47', color: '#9ca0aa', borderRadius: '6px', fontSize: '13px', margin: '3px 6px 3px 0' }}>
+      {children}
+    </span>
+  )
+}
+
+function Analysis({ children }: { children: React.ReactNode }) {
+  return <p style={{ color: '#d1d5da', fontSize: '15px', lineHeight: 1.75, margin: '0 0 14px' }}>{children}</p>
+}
+
+// ── Intelligence sections ──────────────────────────────────────────────────
+
+function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSuburbs }: {
+  score: number | null
+  facts: Record<string, number | null>
+  adjacentHasTrain: boolean
+  adjacentTrainSuburbs: string[]
+}) {
+  const hasTrain = (facts.pt_stop_train ?? 0) > 0
+
+  let analysis = ''
+  if ((score ?? 0) >= 7.5) {
+    analysis = 'High liveability areas command rental premiums and attract quality long-term tenants. Dense café culture, walkability, and good transit access pull in professional renters who pay above-market rents and stay longer.'
+  } else if ((score ?? 0) >= 5.5) {
+    analysis = 'Moderate liveability — the suburb has the essentials for comfortable daily life but lacks the walkable density that draws young professionals. Expect steady family-oriented tenant demand.'
+  } else {
+    analysis = 'Low liveability is a rental risk. Limited walkable amenity and transit access reduces the renter pool. As tenant preferences continue shifting toward walkability, car-dependent suburbs face increasing headwinds. Strong purchase price discipline is essential.'
+  }
+
+  return (
+    <>
+      <Analysis>{analysis}</Analysis>
+      <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '16px', marginBottom: '14px' }}>
+        <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>Public Transport</div>
+        {hasTrain ? (
+          <div style={{ color: '#2ecc71', fontSize: '14px', marginBottom: '6px' }}>🚉 Train station in this suburb</div>
+        ) : (
+          <div style={{ color: '#9ca0aa', fontSize: '14px', marginBottom: '6px' }}>No train station in this suburb</div>
+        )}
+        {!hasTrain && adjacentHasTrain && (
+          <div style={{ color: '#f39c12', fontSize: '13px', marginBottom: '6px' }}>
+            🚉 Train access in adjacent suburb{adjacentTrainSuburbs.length > 0 ? `: ${adjacentTrainSuburbs.slice(0, 2).join(', ')}` : ''}
+          </div>
+        )}
+        <div style={{ color: '#9ca0aa', fontSize: '13px' }}>Bus services present — route count data coming soon</div>
+      </div>
+      <div style={{ fontSize: '12px', color: '#4b566a', fontStyle: 'italic' }}>
+        ℹ️ Café, restaurant and medical counts are sourced from Overture Maps and may not reflect all local businesses.
+        <a href="#" style={{ color: '#4b8ac4', marginLeft: '6px' }}>Learn more</a>
+      </div>
+    </>
+  )
+}
+
+function GrowthSection({ score, facts, intermediates }: {
+  score: number | null
+  facts: Record<string, number | null>
+  intermediates: Record<string, number | null>
+}) {
+  const popGrowth  = facts.pop_growth_proj_pct
+  const approvals  = facts.building_approvals_1yr
+  const projCount  = intermediates.infra_project_count
+  const projAUD    = intermediates.infra_committed_aud
+
+  let analysis = ''
+  if ((score ?? 0) >= 7.5) {
+    analysis = 'Exceptional growth profile. Population demand, active development, and committed government investment create the conditions for sustained capital appreciation — this is where the infrastructure-led growth effect plays out.'
+  } else if ((score ?? 0) >= 5.5) {
+    analysis = `Moderate growth trajectory. ${popGrowth != null ? `ABS projects ${popGrowth.toFixed(1)}% population growth to 2031, sustaining underlying demand. ` : ''}${projCount ? `${projCount} active government project${projCount > 1 ? 's' : ''} nearby provide some infrastructure tailwind. ` : ''}Organic demand growth rather than investment-led uplift.`
+  } else {
+    analysis = `Modest growth outlook. ${popGrowth != null && popGrowth < 5 ? `Sub-5% projected population growth to 2031 signals limited demand pressure. ` : ''}Capital appreciation will largely track the broader market. Focus on yield over growth here.`
+  }
+
+  return (
+    <>
+      <Analysis>{analysis}</Analysis>
+      <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+        {popGrowth != null && <Bullet>{popGrowth.toFixed(1)}% projected population growth to 2031 (ABS)</Bullet>}
+        {approvals != null && <Bullet>{approvals} new dwelling approvals (last financial year)</Bullet>}
+        {projAUD && <Bullet>{fAUD(projAUD)} committed government investment nearby</Bullet>}
+        {projCount != null && projCount > 0 && <Bullet>{projCount} active infrastructure project{projCount > 1 ? 's' : ''}</Bullet>}
+      </div>
+    </>
+  )
+}
+
+function EducationSection({ score, schoolsIn, schoolsAdj }: {
+  score: number | null
+  schoolsIn: SchoolEntry[]
+  schoolsAdj: SchoolEntry[]
+}) {
+  const topCount = schoolsIn.filter(s => s.icsea_percentile != null && s.icsea_percentile >= 75).length
+
+  let analysis = ''
+  if ((score ?? 0) >= 7.5) {
+    analysis = `Premium school catchment is one of the most durable property value drivers in Australia. ${topCount > 0 ? `${topCount} high-performing school${topCount > 1 ? 's' : ''} in this suburb.` : ''} Families make long-term location decisions around school access, producing reliable owner-occupier demand and low vacancy rates.`
+  } else if ((score ?? 0) >= 5.5) {
+    analysis = 'Average school access — adequate but not a differentiating factor for investment. School quality is neither a driver nor a deterrent here. Properties near any of the higher-rated schools below will command a modest premium over the suburb average.'
+  } else {
+    analysis = 'Below-average school quality reduces demand from the most motivated buyer segment — families with school-age children. This limits the buyer pool and constrains capital growth compared to stronger school catchment suburbs.'
+  }
+
+  function sectorColor(sector: string | null) {
+    if (sector === 'Government')   return { bg: '#1a3a4a', color: '#7ec8e3' }
+    if (sector === 'Catholic')     return { bg: '#3a2a1a', color: '#e6a845' }
+    if (sector === 'Independent')  return { bg: '#2a3a1a', color: '#90d870' }
+    return { bg: '#343b47', color: '#9ca0aa' }
+  }
+
+  function ratingColor(rating: string | null) {
+    if (!rating) return '#9ca0aa'
+    if (rating === 'Top 25%') return '#2ecc71'
+    if (rating === 'Top 50%') return '#a8e063'
+    if (rating === 'Average') return '#f39c12'
+    return '#e74c3c'
+  }
+
+  const renderSchool = (s: SchoolEntry, i: number) => {
+    const sc = sectorColor(s.sector)
+    return (
+      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #3a4050', flexWrap: 'wrap', gap: '6px' }}>
+        <div style={{ flex: 1, minWidth: '200px' }}>
+          <div style={{ color: '#f8f8f2', fontSize: '14px', fontWeight: 500 }}>{s.name}</div>
+          <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', backgroundColor: sc.bg, color: sc.color }}>{s.sector}</span>
+            <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', backgroundColor: '#343b47', color: '#9ca0aa' }}>{s.school_type}</span>
+            {s.total_enrolments && <span style={{ fontSize: '11px', color: '#9ca0aa' }}>{s.total_enrolments.toLocaleString()} students</span>}
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          {s.rating && (
+            <div style={{ fontSize: '13px', fontWeight: 700, color: ratingColor(s.rating) }}>{s.rating}</div>
+          )}
+          {s.icsea && <div style={{ fontSize: '11px', color: '#9ca0aa' }}>ICSEA {s.icsea.toFixed(0)}</div>}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <Analysis>{analysis}</Analysis>
+      {schoolsIn.length > 0 && (
+        <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '16px', marginBottom: '14px' }}>
+          <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '2px', textTransform: 'uppercase', letterSpacing: '1px' }}>Schools in this suburb</div>
+          {schoolsIn.map(renderSchool)}
         </div>
       )}
-    </div>
+      {schoolsAdj.length > 0 && (
+        <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '16px' }}>
+          <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '2px', textTransform: 'uppercase', letterSpacing: '1px' }}>Schools in adjacent suburbs</div>
+          <div style={{ fontSize: '12px', color: '#4b566a', marginBottom: '8px' }}>These are within the broader catchment area</div>
+          {schoolsAdj.map(renderSchool)}
+        </div>
+      )}
+      {schoolsIn.length === 0 && schoolsAdj.length === 0 && (
+        <p style={{ color: '#9ca0aa', fontSize: '14px' }}>School data not available for this suburb.</p>
+      )}
+    </>
+  )
+}
+
+function DemographicsSection({ score, facts }: {
+  score: number | null
+  facts: Record<string, number | null>
+}) {
+  const medianAge = facts.median_age
+  const degree    = facts.uni_degree_pct
+  const unemp     = facts.unemployment_pct
+  const profess   = facts.professionals_managers_pct
+
+  let analysis = ''
+  if ((score ?? 0) >= 7) {
+    analysis = `Strong demographic fundamentals. ${degree != null ? `${degree.toFixed(0)}% of residents hold university degrees — a high-education workforce that drives local spending and property demand.` : ''} High-income, educated demographics consistently support long-term capital growth.`
+  } else if ((score ?? 0) >= 5) {
+    analysis = `Middle-market demographics around the Australian median — a stable base that produces reliable tenant demand. ${unemp != null && unemp > 6 ? `Unemployment at ${unemp.toFixed(1)}% is worth monitoring.` : ''}`
+  } else {
+    analysis = `Below-average demographics present a trade-off. Lower education and professional workforce levels limit rent-paying capacity and constrain yield growth. Lower-income areas can still deliver strong gross yields at the right entry price.`
+  }
+
+  return (
+    <>
+      <Analysis>{analysis}</Analysis>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+        {medianAge != null && (
+          <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '14px' }}>
+            <div style={{ color: '#9ca0aa', fontSize: '12px', marginBottom: '4px' }}>Median age</div>
+            <div style={{ color: '#f8f8f2', fontSize: '24px', fontWeight: 700 }}>{medianAge.toFixed(0)}</div>
+          </div>
+        )}
+        {degree != null && (
+          <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '14px' }}>
+            <div style={{ color: '#9ca0aa', fontSize: '12px', marginBottom: '4px' }}>University degree</div>
+            <div style={{ color: '#f8f8f2', fontSize: '24px', fontWeight: 700 }}>{degree.toFixed(1)}%</div>
+          </div>
+        )}
+        {profess != null && (
+          <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '14px' }}>
+            <div style={{ color: '#9ca0aa', fontSize: '12px', marginBottom: '4px' }}>Professionals & managers</div>
+            <div style={{ color: '#f8f8f2', fontSize: '24px', fontWeight: 700 }}>{profess.toFixed(1)}%</div>
+          </div>
+        )}
+        {unemp != null && (
+          <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '14px' }}>
+            <div style={{ color: '#9ca0aa', fontSize: '12px', marginBottom: '4px' }}>Unemployment rate</div>
+            <div style={{ color: unemp > 8 ? '#e74c3c' : unemp > 5 ? '#f39c12' : '#2ecc71', fontSize: '24px', fontWeight: 700 }}>{unemp.toFixed(1)}%</div>
+          </div>
+        )}
+      </div>
+      <div style={{ fontSize: '12px', color: '#4b566a', fontStyle: 'italic' }}>
+        Detailed age group breakdown (0–14, 15–24, 25–44, 45–64, 65+) coming soon.
+      </div>
+    </>
+  )
+}
+
+function HousingSection({ score, facts }: {
+  score: number | null
+  facts: Record<string, number | null>
+}) {
+  const mortgageStress = facts.high_mortgage_stress_pct
+  const rentStress     = facts.high_rent_stress_pct
+  const houses         = facts.separate_house_pct
+  const flats          = facts.flat_apartment_pct
+  const lowRise        = facts.flat_low_rise_pct
+  const midRise        = facts.flat_mid_rise_pct
+  const highRise       = facts.flat_high_rise_pct
+  const renters        = facts.renters_pct
+  const socialHousing  = facts.social_housing_pct
+
+  // Estimate townhouse % = total - houses - flats (remainder is semi-detached/townhouse)
+  const townhouse = (houses != null && flats != null) ? Math.max(0, 100 - houses - flats) : null
+
+  let analysis = ''
+  if ((score ?? 0) >= 7) {
+    analysis = `Healthy housing market fundamentals. ${mortgageStress != null ? `Only ${mortgageStress.toFixed(1)}% of mortgaged households are under stress — the market is not overextended. ` : ''}${socialHousing != null && socialHousing < 5 ? `Low social housing concentration (${socialHousing.toFixed(1)}%) signals a stable owner-occupier-led market.` : ''}`
+  } else if ((score ?? 0) >= 5) {
+    analysis = `Moderate housing market health. Some financial stress exists but is not systemic. ${mortgageStress != null ? `Mortgage stress at ${mortgageStress.toFixed(1)}%` : ''}${rentStress != null ? ` and rent stress at ${rentStress.toFixed(1)}%` : ''} are manageable. Monitor if interest rates rise further.`
+  } else {
+    analysis = `Elevated housing stress is a warning sign. ${mortgageStress != null && mortgageStress > 15 ? `${mortgageStress.toFixed(1)}% of mortgaged households are under financial stress — above the 10% danger threshold. ` : ''}${rentStress != null && rentStress > 20 ? `${rentStress.toFixed(1)}% rent stress increases vacancy and arrears risk.` : ''} High-stress markets can see forced selling and price corrections.`
+  }
+
+  return (
+    <>
+      <Analysis>{analysis}</Analysis>
+
+      {/* Dwelling type breakdown */}
+      <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '16px', marginBottom: '14px' }}>
+        <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>Dwelling types</div>
+        {[
+          { label: 'Detached houses', value: houses, color: '#3498db' },
+          { label: 'Townhouses / semi-detached', value: townhouse, color: '#9b59b6' },
+          { label: 'Flats & apartments (total)', value: flats, color: '#e67e22' },
+          { label: '  └ Low-rise (1–2 storey)', value: lowRise, color: '#d4995a', indent: true },
+          { label: '  └ Mid-rise (3–8 storey)', value: midRise, color: '#c8804a', indent: true },
+          { label: '  └ High-rise (9+ storey)', value: highRise, color: '#c06030', indent: true },
+        ].filter(r => r.value != null && r.value > 0).map(({ label, value, color, indent }) => (
+          <div key={label} style={{ marginBottom: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: indent ? '12px' : '13px', marginBottom: '3px' }}>
+              <span style={{ color: indent ? '#9ca0aa' : '#d1d5da' }}>{label}</span>
+              <span style={{ color, fontWeight: 600 }}>{value!.toFixed(1)}%</span>
+            </div>
+            <div style={{ height: indent ? '3px' : '5px', backgroundColor: '#4b566a', borderRadius: '2px' }}>
+              <div style={{ height: '100%', width: `${value}%`, backgroundColor: color, borderRadius: '2px', opacity: indent ? 0.7 : 1 }} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Financial stress */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
+        {mortgageStress != null && (
+          <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '12px 16px', flex: 1, minWidth: '140px' }}>
+            <div style={{ color: '#9ca0aa', fontSize: '12px', marginBottom: '4px' }}>Mortgage stress</div>
+            <div style={{ color: mortgageStress > 15 ? '#e74c3c' : mortgageStress > 10 ? '#f39c12' : '#2ecc71', fontSize: '22px', fontWeight: 700 }}>{mortgageStress.toFixed(1)}%</div>
+          </div>
+        )}
+        {rentStress != null && (
+          <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '12px 16px', flex: 1, minWidth: '140px' }}>
+            <div style={{ color: '#9ca0aa', fontSize: '12px', marginBottom: '4px' }}>Rent stress</div>
+            <div style={{ color: rentStress > 25 ? '#e74c3c' : rentStress > 15 ? '#f39c12' : '#2ecc71', fontSize: '22px', fontWeight: 700 }}>{rentStress.toFixed(1)}%</div>
+          </div>
+        )}
+        {renters != null && (
+          <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '12px 16px', flex: 1, minWidth: '140px' }}>
+            <div style={{ color: '#9ca0aa', fontSize: '12px', marginBottom: '4px' }}>Renters</div>
+            <div style={{ color: '#f8f8f2', fontSize: '22px', fontWeight: 700 }}>{renters.toFixed(1)}%</div>
+          </div>
+        )}
+        {socialHousing != null && (
+          <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '12px 16px', flex: 1, minWidth: '140px' }}>
+            <div style={{ color: '#9ca0aa', fontSize: '12px', marginBottom: '4px' }}>Social housing</div>
+            <div style={{ color: socialHousing > 15 ? '#e74c3c' : '#f8f8f2', fontSize: '22px', fontWeight: 700 }}>{socialHousing.toFixed(1)}%</div>
+          </div>
+        )}
+      </div>
+      <div style={{ fontSize: '12px', color: '#4b566a', fontStyle: 'italic' }}>
+        Bedroom count breakdown (3-bed, 4-bed, 5-bed) and full dwelling structure detail coming soon.
+      </div>
+    </>
+  )
+}
+
+function InfrastructureSection({ score, intermediates }: {
+  score: number | null
+  intermediates: Record<string, number | null>
+}) {
+  const projAUD   = intermediates.infra_committed_aud
+  const projCount = intermediates.infra_project_count
+
+  let analysis = ''
+  if ((score ?? 0) >= 7) {
+    analysis = `Significant government infrastructure investment is one of the most reliable capital growth predictors. ${projAUD ? `${fAUD(projAUD)} in committed investment signals that government planners have already priced this suburb's future into their capital program.` : ''} Historically, suburbs with major infrastructure projects within 5km see 15–25% price premiums over 5-year holding periods.`
+  } else if ((score ?? 0) >= 5) {
+    analysis = `Moderate infrastructure commitment. ${projCount ? `${projCount} active project${projCount > 1 ? 's' : ''} nearby` : 'Some nearby activity'} provides a tailwind but this is not a primary infrastructure-growth story. Watch for new government announcements — infrastructure surprise is one of the fastest suburb re-raters.`
+  } else {
+    analysis = `No committed government infrastructure investment is linked to this suburb. This is the biggest single gap in the investment case — without a project pipeline, capital growth will track broad market conditions rather than outperform. Monitor state budgets and transport plans for future announcements.`
+  }
+
+  return (
+    <>
+      <Analysis>{analysis}</Analysis>
+      <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+        {projAUD ? <Bullet>{fAUD(projAUD)} committed investment nearby</Bullet> : <Bullet>No committed govt investment nearby</Bullet>}
+        {projCount != null && projCount > 0 && <Bullet>{projCount} active infrastructure project{projCount > 1 ? 's' : ''}</Bullet>}
+      </div>
+    </>
+  )
+}
+
+function GentrificationSection({ score, facts }: {
+  score: number | null
+  facts: Record<string, number | null>
+}) {
+  const degree   = facts.uni_degree_pct
+  const profess  = facts.professionals_managers_pct
+  const popGrowth = facts.pop_growth_proj_pct
+
+  let analysis = ''
+  if ((score ?? 0) >= 7.5) {
+    analysis = 'Strong gentrification in progress. Rising professional workforce composition and high residential mobility are the classic signals of suburb transformation — the kind that produces above-market capital growth as the suburb reprices to its new demographic reality. Early entry captures the full repricing upside.'
+  } else if ((score ?? 0) >= 5.5) {
+    analysis = `Moderate gentrification signals — the suburb is in transition but not yet fully repriced. ${degree != null ? `${degree.toFixed(0)}% university degree holders` : ''}${profess != null ? ` and ${profess.toFixed(0)}% professionals` : ''} point to an upward-trending workforce. Entry at the right price matters here — buy the trend, not the premium.`
+  } else {
+    analysis = 'Limited gentrification underway. The social indicators do not yet show the professional influx that precedes sustained suburb repricing. This is not necessarily negative — stable, established suburbs with low turnover can be excellent buy-and-hold investments at the right price. Growth expectations should be modest and yield-driven.'
+  }
+
+  return (
+    <>
+      <Analysis>{analysis}</Analysis>
+      <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+        {profess != null && <Bullet>{profess.toFixed(1)}% professionals & managers</Bullet>}
+        {degree != null && <Bullet>{degree.toFixed(1)}% university degree holders</Bullet>}
+        {popGrowth != null && <Bullet>{popGrowth.toFixed(1)}% projected population growth to 2031</Bullet>}
+      </div>
+    </>
   )
 }
 
@@ -214,7 +534,7 @@ export default function SuburbGroupPage() {
   }, [id])
 
   return (
-    <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '0 20px 60px' }}>
+    <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '0 20px 80px' }}>
       <div style={{ marginBottom: '24px' }}>
         <Link to="/" style={{ color: '#9ca0aa', textDecoration: 'none', fontSize: '14px' }}>← Back to Search</Link>
       </div>
@@ -230,8 +550,10 @@ export default function SuburbGroupPage() {
   )
 }
 
-function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: (path: string) => void }) {
-  const { suburb_name, state: stateCode, scores, facts, intermediates, insight, risk_flags, tags, sa2_count, sa2_names, sa2_codes, sa2_breakdown, population } = data
+function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: (p: string) => void }) {
+  const { suburb_name, state: stateCode, scores, facts, intermediates, insight, risk_flags, tags,
+    sa2_count, sa2_names, sa2_codes, sa2_breakdown, population,
+    schools_in_suburb, schools_adjacent, adjacent_has_train, adjacent_train_suburbs } = data
   const isMulti = sa2_count > 1
 
   return (
@@ -245,9 +567,7 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
         {population && <p style={{ color: '#9ca0aa', margin: '4px 0 0', fontSize: '13px' }}>{population.toLocaleString()} residents</p>}
         {tags.length > 0 && (
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
-            {tags.map(t => (
-              <span key={t} style={{ padding: '4px 12px', backgroundColor: '#2a3a4a', color: '#7ec8e3', borderRadius: '20px', fontSize: '12px', fontWeight: 600 }}>{t}</span>
-            ))}
+            {tags.map(t => <span key={t} style={{ padding: '4px 12px', backgroundColor: '#2a3a4a', color: '#7ec8e3', borderRadius: '20px', fontSize: '12px', fontWeight: 600 }}>{t}</span>)}
           </div>
         )}
       </div>
@@ -255,16 +575,13 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
       {/* ABS split notice */}
       {isMulti && (
         <div style={{ backgroundColor: '#2a3040', border: '1px solid #4b566a', borderRadius: '8px', padding: '12px 18px', marginBottom: '24px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-          <span style={{ fontSize: '18px' }}>ℹ️</span>
-          <div>
-            <p style={{ margin: '0 0 8px', color: '#d1d5da', fontSize: '14px' }}>
-              <strong>Why are there {sa2_count} areas?</strong> The ABS splits this suburb into {sa2_count} statistical areas for census data collection.
-              The combined score is a population-weighted average — each dimension card shows individual area scores below.
-            </p>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <span>ℹ️</span>
+          <div style={{ fontSize: '14px', color: '#d1d5da' }}>
+            <strong>{suburb_name}</strong> spans {sa2_count} ABS statistical areas — scores are population-weighted averages. Each intelligence section shows individual area comparisons.
+            <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
               {sa2_codes.map((code, i) => (
                 <button key={code} onClick={() => onNavigateSA2(`/suburb/${code}`)}
-                  style={{ padding: '4px 12px', backgroundColor: '#343b47', color: '#9ca0aa', border: '1px solid #4b566a', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>
+                  style={{ padding: '3px 10px', backgroundColor: '#343b47', color: '#9ca0aa', border: '1px solid #4b566a', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>
                   View {sa2_names[i]} →
                 </button>
               ))}
@@ -277,44 +594,71 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
       <div style={{ backgroundColor: '#1e2530', border: '1px solid #4b566a', borderRadius: '12px', padding: '28px 32px', marginBottom: '32px', display: 'flex', alignItems: 'center', gap: '32px' }}>
         <div>
           <div style={{ fontSize: '13px', color: '#9ca0aa', textTransform: 'uppercase', letterSpacing: '1px' }}>Investment Score</div>
-          <div style={{ fontSize: '72px', fontWeight: 800, color: scoreColor(scores.investment_score), lineHeight: 1 }}>
-            {fmt(scores.investment_score)}
-          </div>
+          <div style={{ fontSize: '72px', fontWeight: 800, color: scoreColor(scores.investment_score), lineHeight: 1 }}>{fv(scores.investment_score)}</div>
           <div style={{ color: '#9ca0aa', fontSize: '13px' }}>out of 10</div>
         </div>
         <div style={{ flex: 1, color: '#d1d5da', fontSize: '16px', lineHeight: 1.7 }}>{insight}</div>
       </div>
 
-      {/* Dimension grid with breakdown */}
+      {/* Score Breakdown — clean cards */}
       <h2 style={{ fontSize: '22px', marginBottom: '16px' }}>Score Breakdown</h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px', marginBottom: '40px' }}>
-        {DIMENSIONS.map(d => (
-          <DimensionCard
-            key={d.key}
-            dimKey={d.key}
-            label={d.label}
-            value={scores[d.key as keyof Scores]}
-            facts={facts}
-            intermediates={intermediates}
-            sa2Breakdown={sa2_breakdown}
-            isMulti={isMulti}
-          />
-        ))}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '14px', marginBottom: '48px' }}>
+        <ScoreCard label="Liveability"     value={scores.liveability_score}    desc="Amenity access, transit, healthcare, parks" />
+        <ScoreCard label="Growth"          value={scores.growth_score}          desc="Population growth, investment pipeline, gentrification" />
+        <ScoreCard label="Education"       value={scores.education_score}       desc="School quality, coverage of all levels" />
+        <ScoreCard label="Demographics"    value={scores.demographic_score}     desc="Income, SEIFA, workforce education" />
+        <ScoreCard label="Housing Market"  value={scores.housing_score}         desc="Mortgage/rent stress, dwelling character" />
+        <ScoreCard label="Infrastructure"  value={scores.infrastructure_score}  desc="Committed government investment pipeline" />
+        <ScoreCard label="Gentrification"  value={scores.gentrification_index}  desc="Composite social uplift signal" />
       </div>
 
       {/* Risk flags */}
       {risk_flags.length > 0 && (
-        <div style={{ marginBottom: '40px' }}>
+        <div style={{ marginBottom: '48px' }}>
           <h3 style={{ fontSize: '18px', marginBottom: '12px' }}>⚠️ Risk Flags</h3>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-            {risk_flags.map(f => (
-              <span key={f} style={{ padding: '8px 16px', backgroundColor: '#4a3030', color: '#e07070', borderRadius: '6px', fontSize: '13px' }}>
-                {f.replace(/_/g, ' ')}
+            {risk_flags.map(flag => (
+              <span key={flag} style={{ padding: '8px 16px', backgroundColor: '#4a3030', color: '#e07070', borderRadius: '6px', fontSize: '13px' }}>
+                {flag.replace(/_/g, ' ')}
               </span>
             ))}
           </div>
         </div>
       )}
+
+      {/* Investment Intelligence */}
+      <h2 style={{ fontSize: '22px', marginBottom: '8px' }}>Investment Intelligence</h2>
+      <p style={{ color: '#9ca0aa', fontSize: '14px', marginBottom: '28px' }}>
+        What each score means for your investment decision — and what the data is telling you.
+      </p>
+
+      <IntelPanel emoji="🏙️" label="Liveability"    dimKey="liveability_score"    score={scores.liveability_score}    sa2Breakdown={sa2_breakdown} isMulti={isMulti}>
+        <LiveabilitySection score={scores.liveability_score} facts={facts} adjacentHasTrain={adjacent_has_train} adjacentTrainSuburbs={adjacent_train_suburbs} />
+      </IntelPanel>
+
+      <IntelPanel emoji="📈" label="Growth"         dimKey="growth_score"          score={scores.growth_score}          sa2Breakdown={sa2_breakdown} isMulti={isMulti}>
+        <GrowthSection score={scores.growth_score} facts={facts} intermediates={intermediates} />
+      </IntelPanel>
+
+      <IntelPanel emoji="🏫" label="Education"      dimKey="education_score"       score={scores.education_score}       sa2Breakdown={sa2_breakdown} isMulti={isMulti}>
+        <EducationSection score={scores.education_score} schoolsIn={schools_in_suburb || []} schoolsAdj={schools_adjacent || []} />
+      </IntelPanel>
+
+      <IntelPanel emoji="👥" label="Demographics"   dimKey="demographic_score"     score={scores.demographic_score}     sa2Breakdown={sa2_breakdown} isMulti={isMulti}>
+        <DemographicsSection score={scores.demographic_score} facts={facts} />
+      </IntelPanel>
+
+      <IntelPanel emoji="🏠" label="Housing Market" dimKey="housing_score"         score={scores.housing_score}         sa2Breakdown={sa2_breakdown} isMulti={isMulti}>
+        <HousingSection score={scores.housing_score} facts={facts} />
+      </IntelPanel>
+
+      <IntelPanel emoji="🏗️" label="Infrastructure" dimKey="infrastructure_score"  score={scores.infrastructure_score}  sa2Breakdown={sa2_breakdown} isMulti={isMulti}>
+        <InfrastructureSection score={scores.infrastructure_score} intermediates={intermediates} />
+      </IntelPanel>
+
+      <IntelPanel emoji="☕" label="Gentrification" dimKey="gentrification_index"  score={scores.gentrification_index}  sa2Breakdown={sa2_breakdown} isMulti={isMulti}>
+        <GentrificationSection score={scores.gentrification_index} facts={facts} />
+      </IntelPanel>
 
       {/* Paywall */}
       <div style={{ marginTop: '48px', textAlign: 'center', backgroundColor: '#1e2530', border: '1px solid #4b566a', padding: '48px', borderRadius: '12px' }}>

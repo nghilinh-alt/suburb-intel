@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import ABSCEntensMetrics, SuburbAggregate, SuburbScore, SA2Region
+from app.db.models import ABSCEntensMetrics, SuburbAggregate, SuburbScore, SA2Region, School, SA2SchoolLink
 from app.db.session import get_db
 
 logger = logging.getLogger(__name__)
@@ -119,6 +119,79 @@ async def suburb_group_report(
     top_intermediates = sa2_breakdown[0]["intermediates"] if len(sa2_breakdown) == 1 else {}
     top_facts_detail  = sa2_breakdown[0]["facts"]         if len(sa2_breakdown) == 1 else {}
 
+    # ── Schools: fetch all linked schools for these SA2 codes ──────────────
+    schools_stmt = (
+        select(School, SA2SchoolLink.impact_score, SA2SchoolLink.sa2_code)
+        .join(SA2SchoolLink, SA2SchoolLink.acara_id == School.acara_id)
+        .where(SA2SchoolLink.sa2_code.in_(sa2_codes))
+        .where(School.school_type.in_(["Primary", "Secondary", "Combined"]))  # K-12 only
+        .order_by(SA2SchoolLink.impact_score.desc(), School.icsea.desc().nulls_last())
+    )
+    school_rows = (await db.execute(schools_stmt)).all()
+
+    # Deduplicate schools (may appear via multiple SA2 links) — keep highest impact_score
+    seen_schools: dict[str, dict] = {}
+    for school, impact, _ in school_rows:
+        aid = school.acara_id
+        if aid not in seen_schools or impact > seen_schools[aid]["impact_score"]:
+            # ICSEA percentile label
+            pct = school.icsea_percentile
+            icsea = school.icsea
+            if pct is not None:
+                if pct >= 75:   rating = "Top 25%"
+                elif pct >= 50: rating = "Top 50%"
+                elif pct >= 25: rating = "Average"
+                else:           rating = "Below average"
+            elif icsea is not None:
+                if icsea >= 1100:   rating = "Above average"
+                elif icsea >= 950:  rating = "Average"
+                else:               rating = "Below average"
+            else:
+                rating = None
+
+            seen_schools[aid] = {
+                "name":         school.name,
+                "sector":       school.sector,    # Government | Catholic | Independent
+                "school_type":  school.school_type,  # Primary | Secondary | Combined
+                "icsea":        _r(icsea),
+                "icsea_percentile": _r(pct),
+                "rating":       rating,
+                "impact_score": impact,
+                "in_suburb":    impact == 1.0,    # True = in this SA2, False = adjacent
+                "total_enrolments": school.total_enrolments,
+            }
+
+    schools_in  = sorted([s for s in seen_schools.values() if s["in_suburb"]],  key=lambda x: -(x["icsea"] or 0))
+    schools_adj = sorted([s for s in seen_schools.values() if not s["in_suburb"]], key=lambda x: -(x["icsea"] or 0))
+
+    # ── Adjacent train check ───────────────────────────────────────────────
+    # Find neighbouring SA2s via schools that are IN our suburb (impact_score=1.0)
+    # then look at those schools' 0.5 links → those SA2s border our suburb.
+    in_suburb_ids = [aid for aid, s in seen_schools.items() if s["in_suburb"]]
+    adj_sa2_stmt = (
+        select(SA2SchoolLink.sa2_code)
+        .where(SA2SchoolLink.acara_id.in_(in_suburb_ids))
+        .where(SA2SchoolLink.impact_score == 0.5)
+        .where(SA2SchoolLink.sa2_code.notin_(sa2_codes))
+        .distinct()
+    )
+    adj_sa2_codes = [r[0] for r in (await db.execute(adj_sa2_stmt)).all()]
+
+    adjacent_has_train = False
+    if adj_sa2_codes:
+        adj_train_stmt = (
+            select(ABSCEntensMetrics.sa2_code, SA2Region.sa2_name)
+            .join(SA2Region, SA2Region.sa2_code == ABSCEntensMetrics.sa2_code)
+            .where(ABSCEntensMetrics.sa2_code.in_(adj_sa2_codes))
+            .where(ABSCEntensMetrics.year == 2021)
+            .where(ABSCEntensMetrics.pt_stop_train > 0)
+        )
+        adj_train_rows = (await db.execute(adj_train_stmt)).all()
+        adjacent_has_train = len(adj_train_rows) > 0
+        adjacent_train_suburbs = [r[1] for r in adj_train_rows]
+    else:
+        adjacent_train_suburbs = []
+
     scores_agg = {
         "investment_score":     _r(agg.investment_score),
         "liveability_score":    _r(agg.liveability_score),
@@ -154,6 +227,11 @@ async def suburb_group_report(
             **top_facts_detail,
         },
         "intermediates": top_intermediates,
+
+        "schools_in_suburb":  schools_in,
+        "schools_adjacent":   schools_adj[:8],  # cap adjacent list
+        "adjacent_has_train": adjacent_has_train,
+        "adjacent_train_suburbs": adjacent_train_suburbs,
 
         "risk_flags":    agg.risk_flags or [],
         "tags":          _generate_tags(agg),
