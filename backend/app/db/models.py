@@ -105,6 +105,19 @@ class ABSCEntensMetrics(Base):
     osm_medical_centers  = Column(Integer, nullable=True, comment="GP clinics + medical centres + doctors offices (Overture primary care)")
     osm_pharmacies   = Column(Integer, nullable=True, comment="Pharmacies + drugstores")
     osm_shopping_centres = Column(Integer, nullable=True, comment="Shopping malls + department stores")
+
+    # ── ABS Business Register counts (ANZSIC, June 2025) ─────────────────
+    biz_food_services     = Column(Integer, nullable=True, comment="ANZSIC H: Accommodation and Food Services (cafes, restaurants, takeaways)")
+    biz_retail_trade      = Column(Integer, nullable=True, comment="ANZSIC G: Retail Trade (shops)")
+    biz_health_social     = Column(Integer, nullable=True, comment="ANZSIC Q: Health Care and Social Assistance (GPs, pharmacies, allied health)")
+    biz_construction      = Column(Integer, nullable=True, comment="ANZSIC E: Construction (builders, tradies)")
+    biz_professional      = Column(Integer, nullable=True, comment="ANZSIC M: Professional, Scientific and Technical Services")
+    biz_education         = Column(Integer, nullable=True, comment="ANZSIC P: Education and Training")
+    biz_finance           = Column(Integer, nullable=True, comment="ANZSIC K: Financial and Insurance Services")
+    biz_arts_recreation   = Column(Integer, nullable=True, comment="ANZSIC R: Arts and Recreation Services (gyms, sport)")
+    biz_other_services    = Column(Integer, nullable=True, comment="ANZSIC S: Other Services (mechanics, hair, laundry)")
+    biz_total             = Column(Integer, nullable=True, comment="Total registered businesses across all ANZSIC divisions")
+
     # ── Service businesses (Overture) ────────────────────────────────────
     osm_mechanics        = Column(Integer, nullable=True, comment="Auto repair / mechanics")
     osm_hardware_stores  = Column(Integer, nullable=True, comment="Hardware stores (Bunnings etc)")
