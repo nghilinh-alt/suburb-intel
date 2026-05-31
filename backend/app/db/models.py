@@ -259,6 +259,24 @@ class School(Base):
     )
 
 
+class SuburbPlaceCache(Base):
+    """On-demand Foursquare place counts per suburb, cached for 30 days.
+
+    Populated by GET /suburb-group/{slug}/places on first request.
+    source = 'foursquare_v3'
+    data_json = JSON object: {category_name: count, ...}
+    """
+    __tablename__ = "suburb_place_cache"
+
+    suburb_id  = Column(Text, primary_key=True)
+    source     = Column(Text, nullable=False, default="foursquare_v3")
+    data_json  = Column(JSON, nullable=True, comment="Category→count mapping")
+    lat        = Column(Float, nullable=True, comment="Centroid lat used for query")
+    lon        = Column(Float, nullable=True, comment="Centroid lon used for query")
+    radius_m   = Column(Integer, nullable=True, comment="Query radius in metres")
+    fetched_at = Column(DateTime, nullable=True)
+
+
 class PostcodeSA2Map(Base):
     """Maps Australian postcodes to SA2 regions (ABS 2021 mesh block correspondence).
 

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import os
 from sqlalchemy import func, text
 from app.db.models import ABSCEntensMetrics, SuburbAggregate, SuburbScore, SA2Region, School, SA2SchoolLink
 from app.db.session import get_db
@@ -321,6 +322,118 @@ async def suburb_group_report(
 
 def _r(v: float | None) -> float | None:
     return round(v, 2) if v is not None else None
+
+
+# ---------------------------------------------------------------------------
+# /places endpoint — on-demand Foursquare place counts
+# ---------------------------------------------------------------------------
+
+@router.get("/{suburb_id}/places")
+async def suburb_places(
+    suburb_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Return Foursquare place counts for a suburb, fetched on-demand and cached 30 days.
+
+    Requires FOURSQUARE_API_KEY in backend/.env.
+    Returns {"source": "foursquare_v3", "radius_m": ..., "counts": {...}, "cached": bool}
+    """
+    agg = await db.get(SuburbAggregate, suburb_id)
+    if agg is None:
+        raise HTTPException(status_code=404, detail=f"Suburb '{suburb_id}' not found.")
+
+    api_key = os.getenv("FOURSQUARE_API_KEY", "").strip()
+    if not api_key:
+        return {
+            "suburb_id": suburb_id,
+            "source": None,
+            "counts": None,
+            "status": "no_api_key",
+            "message": "Add FOURSQUARE_API_KEY to backend/.env to enable live place counts.",
+        }
+
+    # Compute centroid from first SA2's geometry
+    sa2_codes = agg.sa2_codes or []
+    if not sa2_codes:
+        raise HTTPException(status_code=503, detail="No SA2 codes for this suburb.")
+
+    lat, lon = await _get_centroid(db, sa2_codes[0])
+    if lat is None:
+        raise HTTPException(status_code=503, detail="No geometry for this suburb.")
+
+    # Radius: approximate based on population density
+    pop = agg.population or 5000
+    # Urban ≥ 10k pop → 1.5km, semi-urban 5-10k → 2km, rural < 5k → 3km
+    if pop >= 10000:  radius_m = 1500
+    elif pop >= 5000: radius_m = 2000
+    else:             radius_m = 3000
+
+    # Run in sync thread pool (requests is synchronous)
+    import asyncio
+    from app.ingestion.foursquare_places import get_or_fetch
+    from app.db.session import get_sync_session
+
+    def _sync_fetch():
+        sync_db = get_sync_session()
+        try:
+            return get_or_fetch(suburb_id, lat, lon, radius_m, api_key, sync_db)
+        finally:
+            sync_db.close()
+
+    loop = asyncio.get_event_loop()
+    counts = await loop.run_in_executor(None, _sync_fetch)
+
+    # Check if result was cached
+    from app.db.models import SuburbPlaceCache
+    from datetime import timedelta
+    cached_row = await db.get(SuburbPlaceCache, suburb_id)
+    was_cached = cached_row is not None
+
+    return {
+        "suburb_id":  suburb_id,
+        "suburb_name": agg.suburb_name,
+        "state":      agg.state,
+        "source":     "foursquare_v3",
+        "radius_m":   radius_m,
+        "lat":        lat,
+        "lon":        lon,
+        "counts":     counts,
+        "cached":     was_cached,
+        "status":     "ok" if counts else "fetch_failed",
+    }
+
+
+async def _get_centroid(db: AsyncSession, sa2_code: str) -> tuple[float | None, float | None]:
+    """Compute centroid lat/lon from SA2 geometry."""
+    import json as json_mod
+    row = await db.get(SA2Region, sa2_code)
+    if not row or not row.geometry_geojson:
+        return None, None
+    try:
+        geom = json_mod.loads(row.geometry_geojson)
+        coords_flat: list = []
+
+        def _collect(rings):
+            for ring in rings:
+                if ring and isinstance(ring[0], (int, float)):
+                    return
+                for pt in ring:
+                    if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                        coords_flat.append((float(pt[0]), float(pt[1])))
+
+        if geom["type"] == "Polygon":
+            _collect(geom["coordinates"])
+        elif geom["type"] == "MultiPolygon":
+            for poly in geom["coordinates"]:
+                _collect(poly)
+
+        if coords_flat:
+            lon = sum(c[0] for c in coords_flat) / len(coords_flat)
+            lat = sum(c[1] for c in coords_flat) / len(coords_flat)
+            return lat, lon
+    except Exception:
+        pass
+    return None, None
 
 
 def _generate_tags(agg: SuburbAggregate) -> list[str]:
