@@ -54,6 +54,30 @@ interface PeerSuburb {
   education_score: number | null
 }
 
+interface MarketData {
+  house_median_price: number | null
+  unit_median_price: number | null
+  house_weekly_rent: number | null
+  unit_weekly_rent: number | null
+  house_gross_yield_pct: number | null
+  unit_gross_yield_pct: number | null
+  house_1y_growth_pct: number | null
+  unit_1y_growth_pct: number | null
+  house_3y_growth_pct: number | null
+  unit_3y_growth_pct: number | null
+  house_5y_growth_pct: number | null
+  unit_5y_growth_pct: number | null
+  house_growth_confidence: string | null
+  house_days_on_market: number | null
+  unit_days_on_market: number | null
+  vacancy_rate_pct: number | null
+  house_sales_12mo: number | null
+  unit_sales_12mo: number | null
+  house_heat_score: number | null
+  sold_vs_asking_pct: number | null
+  as_of: string | null
+}
+
 interface CommuteTimes {
   drive_offpeak_min: number | null
   drive_peak_min: number | null
@@ -99,6 +123,7 @@ interface GroupReport {
   adjacent_train_suburbs: string[]
   cbd_distance_km: number | null
   cbd_city: string | null
+  market_data: MarketData | null
   commute_times: CommuteTimes | null
   rank: Rank
   peer_suburbs: PeerSuburb[]
@@ -851,7 +876,7 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
     sa2_count, sa2_names, sa2_codes, sa2_breakdown, population,
     schools_in_suburb, schools_adjacent, adjacent_has_train, adjacent_train_suburbs,
     universities_nearby, hospitals_nearby, cbd_distance_km, cbd_city, commute_times,
-    rank, peer_suburbs } = data
+    market_data, rank, peer_suburbs } = data
   const isMulti = sa2_count > 1
 
   return (
@@ -941,6 +966,101 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#4b566a', marginTop: '4px' }}>
             <span>Lowest</span><span>Highest</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Market Snapshot ── */}
+      {market_data && (
+        <div style={{ backgroundColor: '#1e2530', border: '1px solid #4b566a', borderRadius: '12px', padding: '24px', marginBottom: '32px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', flexWrap: 'wrap', gap: '8px' }}>
+            <h2 style={{ margin: 0, fontSize: '20px', color: '#f8f8f2' }}>📊 Market Snapshot</h2>
+            {market_data.as_of && (
+              <span style={{ fontSize: '11px', color: '#4b566a' }}>
+                Data as of {new Date(market_data.as_of).toLocaleDateString('en-AU', { month: 'short', year: 'numeric' })} · Source: PropRadar
+              </span>
+            )}
+          </div>
+
+          {/* House vs Unit table */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+            {/* House */}
+            <div style={{ backgroundColor: '#2a3040', borderRadius: '8px', padding: '16px' }}>
+              <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>🏠 House</div>
+              {[
+                ['Median price',    market_data.house_median_price ? `$${market_data.house_median_price.toLocaleString()}` : '—'],
+                ['Weekly rent',     market_data.house_weekly_rent  ? `$${market_data.house_weekly_rent}/wk`  : '—'],
+                ['Gross yield',     market_data.house_gross_yield_pct != null ? `${market_data.house_gross_yield_pct.toFixed(2)}%` : '—'],
+                ['1yr growth',      market_data.house_1y_growth_pct != null ? `${market_data.house_1y_growth_pct > 0 ? '+' : ''}${market_data.house_1y_growth_pct.toFixed(1)}%` : '—'],
+                ['3yr growth',      market_data.house_3y_growth_pct != null ? `+${market_data.house_3y_growth_pct.toFixed(1)}%` : '—'],
+                ['5yr growth',      market_data.house_5y_growth_pct != null ? `+${market_data.house_5y_growth_pct.toFixed(1)}%` : '—'],
+                ['Days on market',  market_data.house_days_on_market != null ? `${market_data.house_days_on_market} days` : '—'],
+                ['Sales (12mo)',    market_data.house_sales_12mo != null ? `${market_data.house_sales_12mo}` : '—'],
+              ].map(([label, val]) => (
+                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #3a4050', fontSize: '13px' }}>
+                  <span style={{ color: '#9ca0aa' }}>{label}</span>
+                  <span style={{ color: '#f8f8f2', fontWeight: 600 }}>{val}</span>
+                </div>
+              ))}
+            </div>
+            {/* Unit */}
+            <div style={{ backgroundColor: '#2a3040', borderRadius: '8px', padding: '16px' }}>
+              <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>🏢 Unit / Apartment</div>
+              {[
+                ['Median price',   market_data.unit_median_price ? `$${market_data.unit_median_price.toLocaleString()}` : '—'],
+                ['Weekly rent',    market_data.unit_weekly_rent  ? `$${market_data.unit_weekly_rent}/wk`  : '—'],
+                ['Gross yield',    market_data.unit_gross_yield_pct != null ? `${market_data.unit_gross_yield_pct.toFixed(2)}%` : '—'],
+                ['1yr growth',     market_data.unit_1y_growth_pct != null ? `${market_data.unit_1y_growth_pct > 0 ? '+' : ''}${market_data.unit_1y_growth_pct.toFixed(1)}%` : '—'],
+                ['3yr growth',     market_data.unit_3y_growth_pct != null ? `+${market_data.unit_3y_growth_pct.toFixed(1)}%` : '—'],
+                ['5yr growth',     market_data.unit_5y_growth_pct != null ? `+${market_data.unit_5y_growth_pct.toFixed(1)}%` : '—'],
+                ['Days on market', market_data.unit_days_on_market != null ? `${market_data.unit_days_on_market} days` : '—'],
+                ['Sales (12mo)',   market_data.unit_sales_12mo != null ? `${market_data.unit_sales_12mo}` : '—'],
+              ].map(([label, val]) => (
+                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #3a4050', fontSize: '13px' }}>
+                  <span style={{ color: '#9ca0aa' }}>{label}</span>
+                  <span style={{ color: '#f8f8f2', fontWeight: 600 }}>{val}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Market indicators row */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px' }}>
+            {market_data.vacancy_rate_pct != null && (
+              <div style={{ backgroundColor: '#2a3040', borderRadius: '6px', padding: '10px 14px' }}>
+                <div style={{ fontSize: '11px', color: '#9ca0aa', marginBottom: '3px' }}>Vacancy rate</div>
+                <div style={{ fontSize: '20px', fontWeight: 700,
+                  color: market_data.vacancy_rate_pct < 2 ? '#2ecc71' : market_data.vacancy_rate_pct < 3 ? '#f39c12' : '#e74c3c' }}>
+                  {market_data.vacancy_rate_pct.toFixed(1)}%
+                </div>
+                <div style={{ fontSize: '11px', color: '#4b566a' }}>
+                  {market_data.vacancy_rate_pct < 2 ? 'Very tight rental market' : market_data.vacancy_rate_pct < 3 ? 'Balanced' : 'Softer rental demand'}
+                </div>
+              </div>
+            )}
+            {market_data.house_heat_score != null && (
+              <div style={{ backgroundColor: '#2a3040', borderRadius: '6px', padding: '10px 14px' }}>
+                <div style={{ fontSize: '11px', color: '#9ca0aa', marginBottom: '3px' }}>Demand heat score</div>
+                <div style={{ fontSize: '20px', fontWeight: 700,
+                  color: market_data.house_heat_score >= 65 ? '#2ecc71' : market_data.house_heat_score >= 45 ? '#f39c12' : '#e74c3c' }}>
+                  {market_data.house_heat_score.toFixed(0)}<span style={{ fontSize: '12px', color: '#9ca0aa' }}>/100</span>
+                </div>
+                <div style={{ fontSize: '11px', color: '#4b566a' }}>
+                  {market_data.house_heat_score >= 65 ? 'Strong buyer demand' : market_data.house_heat_score >= 45 ? 'Moderate demand' : 'Softer buyer market'}
+                </div>
+              </div>
+            )}
+            {market_data.sold_vs_asking_pct != null && (
+              <div style={{ backgroundColor: '#2a3040', borderRadius: '6px', padding: '10px 14px' }}>
+                <div style={{ fontSize: '11px', color: '#9ca0aa', marginBottom: '3px' }}>Sold vs asking</div>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: market_data.sold_vs_asking_pct > 0 ? '#2ecc71' : '#e74c3c' }}>
+                  {market_data.sold_vs_asking_pct > 0 ? '+' : ''}{market_data.sold_vs_asking_pct.toFixed(1)}%
+                </div>
+                <div style={{ fontSize: '11px', color: '#4b566a' }}>
+                  {market_data.sold_vs_asking_pct > 2 ? 'Selling above asking' : market_data.sold_vs_asking_pct > 0 ? 'Near asking price' : 'Below asking price'}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

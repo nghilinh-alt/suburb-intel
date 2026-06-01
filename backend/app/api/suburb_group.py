@@ -276,6 +276,22 @@ async def suburb_group_report(
                 })
         hospitals_nearby.sort(key=lambda x: x["dist_km"])
 
+    # ── PropRadar market data (on-demand, 30-day cache) ──────────────────
+    propradar_api_key = os.getenv("PROPRADAR_API_KEY", "").strip()
+    market_data: dict | None = None
+    if propradar_api_key:
+        from app.ingestion.propradar_loader import get_or_fetch as pr_get
+        from app.db.session import get_sync_session
+        def _sync_pr():
+            sync_db = get_sync_session()
+            try:
+                return pr_get(suburb_id, propradar_api_key, sync_db)
+            finally:
+                sync_db.close()
+        import asyncio
+        loop = asyncio.get_event_loop()
+        market_data = await loop.run_in_executor(None, _sync_pr)
+
     # ── Commute times ─────────────────────────────────────────────────────
     commute_times: dict | None = None
     if centroid_lat is not None and agg.state in {
@@ -430,6 +446,8 @@ async def suburb_group_report(
         "schools_adjacent":   schools_adj[:8],  # cap adjacent list
         "adjacent_has_train": adjacent_has_train,
         "adjacent_train_suburbs": adjacent_train_suburbs,
+
+        "market_data":      market_data,
 
         "cbd_distance_km":  cbd_distance_km,
         "cbd_city":         cbd_city,

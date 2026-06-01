@@ -272,6 +272,48 @@ class School(Base):
     )
 
 
+class PropRadarSuburbCache(Base):
+    """PropRadar suburb market data — cached for 30 days on first request.
+
+    Populated by GET /suburb-group/{slug} on first view via propradar_loader.py.
+    Contains median prices, yields, growth rates, days on market, vacancy, heat score.
+    """
+    __tablename__ = "propradar_suburb_cache"
+
+    suburb_id              = Column(Text, primary_key=True)
+
+    # Median prices
+    house_median_price     = Column(Integer, nullable=True)
+    unit_median_price      = Column(Integer, nullable=True)
+    house_weekly_rent      = Column(Integer, nullable=True)
+    unit_weekly_rent       = Column(Integer, nullable=True)
+
+    # Yields
+    house_gross_yield_pct  = Column(Float, nullable=True)
+    unit_gross_yield_pct   = Column(Float, nullable=True)
+
+    # Capital growth
+    house_1y_growth_pct    = Column(Float, nullable=True)
+    unit_1y_growth_pct     = Column(Float, nullable=True)
+    house_3y_growth_pct    = Column(Float, nullable=True)
+    unit_3y_growth_pct     = Column(Float, nullable=True)
+    house_5y_growth_pct    = Column(Float, nullable=True)
+    unit_5y_growth_pct     = Column(Float, nullable=True)
+    house_growth_confidence = Column(Text, nullable=True)
+
+    # Market dynamics
+    house_days_on_market   = Column(Integer, nullable=True)
+    unit_days_on_market    = Column(Integer, nullable=True)
+    vacancy_rate_pct       = Column(Float, nullable=True)
+    house_sales_12mo       = Column(Integer, nullable=True)
+    unit_sales_12mo        = Column(Integer, nullable=True)
+    house_heat_score       = Column(Float, nullable=True)
+    sold_vs_asking_pct     = Column(Float, nullable=True)
+
+    fetched_at  = Column(DateTime, nullable=True)
+    as_of       = Column(Text, nullable=True, comment="PropRadar data timestamp")
+
+
 class SuburbPlaceCache(Base):
     """On-demand Foursquare place counts per suburb, cached for 30 days.
 
