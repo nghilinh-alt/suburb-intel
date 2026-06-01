@@ -293,15 +293,43 @@ function EducationSection({ score, schoolsIn, schoolsAdj }: {
   schoolsIn: SchoolEntry[]
   schoolsAdj: SchoolEntry[]
 }) {
-  const topCount = schoolsIn.filter(s => s.icsea_percentile != null && s.icsea_percentile >= 75).length
+  const allSchools = [...schoolsIn, ...schoolsAdj]
 
+  // Find the best schools by percentile
+  const top5Schools  = allSchools.filter(s => s.icsea_percentile != null && s.icsea_percentile >= 95)
+  const top10Schools = allSchools.filter(s => s.icsea_percentile != null && s.icsea_percentile >= 90 && s.icsea_percentile < 95)
+  const top15Schools = allSchools.filter(s => s.icsea_percentile != null && s.icsea_percentile >= 85 && s.icsea_percentile < 90)
+  const top25Schools = allSchools.filter(s => s.icsea_percentile != null && s.icsea_percentile >= 75 && s.icsea_percentile < 85)
+  const bestSchools  = [...top5Schools, ...top10Schools, ...top15Schools, ...top25Schools]
+  const bestInSuburb = schoolsIn.filter(s => s.icsea_percentile != null && s.icsea_percentile >= 75)
+  const bestAdj      = schoolsAdj.filter(s => s.icsea_percentile != null && s.icsea_percentile >= 75)
+
+  // Build investment analysis from actual school data, not just the score bucket
   let analysis = ''
-  if ((score ?? 0) >= 7.5) {
-    analysis = `Premium school catchment is one of the most durable property value drivers in Australia. ${topCount > 0 ? `${topCount} high-performing school${topCount > 1 ? 's' : ''} in this suburb.` : ''} Families make long-term location decisions around school access, producing reliable owner-occupier demand and low vacancy rates.`
+
+  if (top5Schools.length > 0) {
+    const names = top5Schools.map(s => s.name).join(' and ')
+    const location = top5Schools.every(s => schoolsIn.includes(s)) ? 'in this suburb' : 'adjacent to this suburb'
+    analysis = `Elite school catchment — ${names} ranks in the Top 5% of all Australian schools (ICSEA ${top5Schools[0].icsea?.toFixed(0)}). Being ${location} is a powerful and durable property value driver. Families commit to long-term home ownership to secure access to schools at this level, producing sustained demand and price resilience that outperforms the broader market.`
+  } else if (top10Schools.length > 0) {
+    const names = top10Schools.map(s => s.name).join(' and ')
+    analysis = `Strong school catchment — ${names} places in the Top 10% nationally. This is a meaningful investment signal: quality school access reliably attracts family buyers willing to pay above-market prices to secure a catchment. Properties within the school zone typically trade at a measurable premium to the suburb median.`
+  } else if (top15Schools.length > 0) {
+    const names = top15Schools.slice(0, 2).map(s => s.name).join(' and ')
+    analysis = `Above-average school access — ${names} ranks in the Top 15% nationally. School quality at this level is a genuine investment differentiator for the family buyer segment, which makes long-term residential decisions based on catchment access. Expect a catchment premium on properties within zone.`
+  } else if (bestSchools.length > 0) {
+    const n = bestSchools.length
+    analysis = `This area has ${n} above-average school${n > 1 ? 's' : ''} (Top 25% nationally) within or adjacent to the suburb. Families with school-age children represent the most motivated and financially committed buyer segment — quality school access supports both demand and price stability.`
   } else if ((score ?? 0) >= 5.5) {
-    analysis = 'Average school access — adequate but not a differentiating factor for investment. School quality is neither a driver nor a deterrent here. Properties near any of the higher-rated schools below will command a modest premium over the suburb average.'
+    analysis = `Schools nearby are around the national average. School quality is not a strong differentiator here — it won't deter buyers, but it's also not driving the premium that elite school catchments produce. Investors should focus on other fundamentals for this suburb.`
   } else {
-    analysis = 'Below-average school quality reduces demand from the most motivated buyer segment — families with school-age children. This limits the buyer pool and constrains capital growth compared to stronger school catchment suburbs.'
+    analysis = `Below-average school quality reduces demand from the most motivated buyer segment — families with school-age children. This limits the buyer pool and constrains capital growth compared to stronger school catchment suburbs. Rental demand may still be solid from professional renters who prioritise other factors.`
+  }
+
+  // Add context about in-suburb vs adjacent distinction
+  if (bestAdj.length > 0 && bestInSuburb.length === 0 && top5Schools.length === 0 && top10Schools.length === 0) {
+    const adjNames = bestAdj.slice(0, 2).map(s => s.name).join(', ')
+    analysis += ` Note: the highest-rated schools (${adjNames}) are in adjacent suburbs — confirm zone boundaries before making catchment-based investment decisions.`
   }
 
   function sectorColor(sector: string | null) {
@@ -313,10 +341,16 @@ function EducationSection({ score, schoolsIn, schoolsAdj }: {
 
   function ratingColor(rating: string | null) {
     if (!rating) return '#9ca0aa'
-    if (rating === 'Top 25%') return '#2ecc71'
-    if (rating === 'Top 50%') return '#a8e063'
-    if (rating === 'Average') return '#f39c12'
-    return '#e74c3c'
+    const pct = parseInt(rating.replace(/[^0-9]/g, '') || '100')
+    if (rating.startsWith('Top')) {
+      if (pct <= 5)  return '#2ecc71'   // Top 5% — bright green
+      if (pct <= 10) return '#27ae60'   // Top 10% — green
+      if (pct <= 15) return '#a8e063'   // Top 15% — light green
+      if (pct <= 25) return '#f1c40f'   // Top 25% — yellow
+      if (pct <= 35) return '#f39c12'   // Top 35% — amber
+      return '#e67e22'                   // Top 50% — orange
+    }
+    return '#e74c3c'                     // Bottom bands — red
   }
 
   const renderSchool = (s: SchoolEntry, i: number) => {
