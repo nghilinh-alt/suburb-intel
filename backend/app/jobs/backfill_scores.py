@@ -66,7 +66,9 @@ SELECT
     m.pop_proj_2026, m.pop_proj_2031, m.pop_growth_proj_pct,
     -- Commute
     m.pt_commute_pct, m.car_commute_pct, m.work_from_home_pct,
-    m.zero_car_dwellings_pct
+    m.zero_car_dwellings_pct,
+    -- Geography
+    r.area_sqkm
 FROM abs_census_metrics m
 JOIN sa2_regions r ON r.sa2_code = m.sa2_code
 WHERE m.year = :year

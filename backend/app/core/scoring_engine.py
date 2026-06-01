@@ -39,7 +39,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-SCORE_VERSION = "v1.3"
+SCORE_VERSION = "v1.4"
 
 # ---------------------------------------------------------------------------
 # Composite weights
@@ -80,6 +80,7 @@ def run_scoring_pipeline(df: pd.DataFrame) -> pd.DataFrame:
     df = _compute_transit_score(df)
     df = _compute_gentrification(df)
     df = _compute_infra_per_capita(df)
+    df = _compute_density_metrics(df)
     df = _normalise_inputs(df)
     df = _score_liveability(df)
     df = _score_education(df)
@@ -153,6 +154,23 @@ def _compute_infra_per_capita(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _compute_density_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    """Population density and parks per km² — normalised for suburb size.
+
+    Using area-normalised parks is fairer than raw park count:
+    a dense 2km² suburb with 10 parks (5/km²) has far better green access
+    than a 50km² outer suburb with 10 parks (0.2/km²).
+    """
+    area = _s(df, "area_sqkm").replace(0, np.nan)
+    pop  = _s(df, "population").replace(0, np.nan)
+
+    df["population_density"] = pop / area                           # people/km²
+    df["parks_per_km2"]      = _s(df, "osm_parks") / area         # parks/km²
+    df["biz_food_per_1000"]  = _s(df, "biz_food_services") / pop * 1000
+    df["biz_health_per_1000"]= _s(df, "biz_health_social") / pop * 1000
+    return df
+
+
 # ===========================================================================
 # Phase 2 — Normalise to percentile ranks (0–100)
 # ===========================================================================
@@ -177,7 +195,9 @@ def _normalise_inputs(df: pd.DataFrame) -> pd.DataFrame:
 
     df["transit_pct"]     = _fill50(_pct(df["transit_score_raw"]))
     df["hospital_pct"]    = _fill50(_pct(_s(df, "health_hospital_score")))
-    df["park_pct"]        = _fill50(_pct(_s(df, "osm_parks")))             # OSM parks OK
+    # parks_per_km² is more meaningful than raw count — normalises for suburb size
+    # A dense 2km² suburb with 5 parks scores the same as a 50km² suburb with 125 parks
+    df["park_pct"]        = _fill50(_pct(df["parks_per_km2"]))
 
     # ── Education ────────────────────────────────────────────────────────────
     # edu_best_school_pct: the ICSEA national percentile of the single best school

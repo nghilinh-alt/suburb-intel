@@ -125,6 +125,8 @@ interface GroupReport {
   adjacent_train_suburbs: string[]
   cbd_distance_km: number | null
   cbd_city: string | null
+  population_density: number | null
+  parks_per_km2: number | null
   market_data: MarketData | null
   commute_times: CommuteTimes | null
   rank: Rank
@@ -887,7 +889,7 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
     sa2_count, sa2_names, sa2_codes, sa2_breakdown, population,
     schools_in_suburb, schools_adjacent, adjacent_has_train, adjacent_train_suburbs,
     universities_nearby, hospitals_nearby, shopping_nearby, shopping_nearby_count, cbd_distance_km, cbd_city, commute_times,
-    market_data, rank, peer_suburbs } = data
+    population_density, parks_per_km2, market_data, rank, peer_suburbs } = data
   const isMulti = sa2_count > 1
 
   return (
@@ -900,6 +902,16 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
         </div>
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginTop: '4px', flexWrap: 'wrap' }}>
           {population && <p style={{ color: '#9ca0aa', margin: 0, fontSize: '13px' }}>{population.toLocaleString()} residents</p>}
+          {population_density != null && (
+            <p style={{ color: '#9ca0aa', margin: 0, fontSize: '13px' }}>
+              🏘️ <span style={{ color: '#d1d5da' }}>{Math.round(population_density).toLocaleString()}</span> people/km²
+            </p>
+          )}
+          {parks_per_km2 != null && (
+            <p style={{ color: '#9ca0aa', margin: 0, fontSize: '13px' }}>
+              🌳 <span style={{ color: '#d1d5da' }}>{parks_per_km2.toFixed(1)}</span> parks/km²
+            </p>
+          )}
           {cbd_distance_km != null && cbd_city && (
             <p style={{ color: '#9ca0aa', margin: 0, fontSize: '13px' }}>
               📍 <span style={{ color: '#d1d5da' }}>{cbd_distance_km}km</span> from {cbd_city} CBD

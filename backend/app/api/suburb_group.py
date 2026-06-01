@@ -40,7 +40,7 @@ async def suburb_group_report(
     # Fetch suburb_scores + census facts for each constituent SA2
     sa2_codes = agg.sa2_codes or []
     stmt = (
-        select(SuburbScore, ABSCEntensMetrics, SA2Region.sa2_name)
+        select(SuburbScore, ABSCEntensMetrics, SA2Region.sa2_name, SA2Region.area_sqkm)
         .join(ABSCEntensMetrics,
               (ABSCEntensMetrics.sa2_code == SuburbScore.sa2_code) &
               (ABSCEntensMetrics.year == 2021),
@@ -52,7 +52,7 @@ async def suburb_group_report(
 
     # Build per-SA2 breakdown
     sa2_breakdown = []
-    for scores, census, sa2_name in rows:
+    for scores, census, sa2_name, area_sqkm in rows:
         pop = census.population if census else None
         sa2_breakdown.append({
             "sa2_code": scores.sa2_code,
@@ -108,6 +108,9 @@ async def suburb_group_report(
                 "pt_stop_tram":             census.pt_stop_tram if census else None,
                 "pt_stop_bus":              census.pt_stop_bus if census else None,
                 "pt_stop_ferry":            census.pt_stop_ferry if census else None,
+                "area_sqkm":               area_sqkm,
+                "population_density":      _r(pop / area_sqkm) if pop and area_sqkm else None,
+                "parks_per_km2":           _r((census.osm_parks or 0) / area_sqkm) if census and area_sqkm else None,
                 "osm_cafes":                census.osm_cafes if census else None,
                 "osm_restaurants":          census.osm_restaurants if census else None,
                 "osm_parks":                census.osm_parks if census else None,
@@ -520,6 +523,10 @@ async def suburb_group_report(
         "adjacent_train_suburbs": adjacent_train_suburbs,
 
         "market_data":      market_data,
+
+        # Derived density metrics
+        "population_density": _r(sa2_breakdown[0]["facts"].get("population_density")) if sa2_breakdown else None,
+        "parks_per_km2":      _r(sa2_breakdown[0]["facts"].get("parks_per_km2"))      if sa2_breakdown else None,
 
         "cbd_distance_km":  cbd_distance_km,
         "cbd_city":         cbd_city,
