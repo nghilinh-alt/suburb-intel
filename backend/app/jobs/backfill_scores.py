@@ -75,6 +75,7 @@ WHERE m.year = :year
 _EDUCATION_SQL = """
 SELECT
     l.sa2_code,
+    -- Enrolment-weighted average ICSEA across all linked K-12 schools
     SUM(
         CASE WHEN s.icsea IS NOT NULL AND s.total_enrolments IS NOT NULL
              THEN s.icsea * s.total_enrolments * l.impact_score
@@ -84,6 +85,11 @@ SELECT
              THEN s.total_enrolments * l.impact_score
              ELSE 0 END
     ), 0) AS edu_avg_icsea,
+    -- ICSEA percentile of the single BEST school in or adjacent to this SA2
+    -- This captures catchment premium far better than the average
+    MAX(CASE WHEN l.impact_score >= 0.5 THEN s.icsea_percentile END) AS edu_best_school_pct,
+    -- ICSEA of best in-suburb school (impact=1.0) — for context
+    MAX(CASE WHEN l.impact_score = 1.0 THEN s.icsea_percentile END) AS edu_best_in_suburb_pct,
     COUNT(CASE WHEN s.icsea >= 1100 AND l.impact_score >= 0.5 THEN 1 END) AS edu_top_school_count,
     COUNT(CASE WHEN s.school_type = 'Primary' AND l.impact_score >= 0.5 THEN 1 END) AS edu_primary_count,
     COUNT(CASE WHEN s.school_type IN ('Secondary','Combined') AND l.impact_score >= 0.5 THEN 1 END) AS edu_secondary_count,

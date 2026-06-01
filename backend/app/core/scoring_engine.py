@@ -39,7 +39,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-SCORE_VERSION = "v1.1"
+SCORE_VERSION = "v1.2"
 
 # ---------------------------------------------------------------------------
 # Composite weights
@@ -180,6 +180,10 @@ def _normalise_inputs(df: pd.DataFrame) -> pd.DataFrame:
     df["park_pct"]        = _fill50(_pct(_s(df, "osm_parks")))             # OSM parks OK
 
     # ── Education ────────────────────────────────────────────────────────────
+    # edu_best_school_pct: the ICSEA national percentile of the single best school
+    # in or adjacent to the SA2. This directly measures catchment premium potential.
+    # A Top 5% school (pct=95) near a suburb is worth far more than the average.
+    df["best_school_pct"] = _fill50(_pct(_s(df, "edu_best_school_pct")))
     df["icsea_pct"]       = _fill50(_pct(_s(df, "edu_avg_icsea")))
     df["top_school_pct"]  = _fill50(_pct(_s(df, "edu_top_school_count")))
     df["secondary_pct"]   = _fill50(_pct(_s(df, "edu_secondary_count")))
@@ -246,11 +250,21 @@ def _score_liveability(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _score_education(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Heavily weights the best single school in the catchment — this is what
+    actually drives property price premiums. A Top 5% school adjacent to a
+    suburb creates a measurable catchment premium regardless of other schools.
+
+    Tertiary weight cut from 15% → 5%: universities are rare and most
+    suburban SA2s have zero, making it a near-useless differentiator that
+    was previously pulling suburban school scores down unfairly.
+    """
     df["education_score"] = _dim(df, {
-        "icsea_pct":      50,
-        "top_school_pct": 20,
-        "secondary_pct":  15,
-        "tertiary_pct":   15,
+        "best_school_pct": 40,   # NEW: quality of single best school in catchment
+        "icsea_pct":       25,   # avg ICSEA quality across all schools
+        "top_school_pct":  20,   # count of high-performing schools (choice)
+        "secondary_pct":   10,   # secondary school access (family completeness)
+        "tertiary_pct":     5,   # tertiary (rare in suburbs, low impact)
     })
     return df
 
