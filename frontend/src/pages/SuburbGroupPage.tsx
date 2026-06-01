@@ -54,6 +54,15 @@ interface PeerSuburb {
   education_score: number | null
 }
 
+interface CommuteTimes {
+  drive_offpeak_min: number | null
+  drive_peak_min: number | null
+  pt_min: number
+  pt_mode: string
+  road_distance_km: number
+  note: string
+}
+
 interface UniEntry {
   name: string
   school_type: string
@@ -90,6 +99,7 @@ interface GroupReport {
   adjacent_train_suburbs: string[]
   cbd_distance_km: number | null
   cbd_city: string | null
+  commute_times: CommuteTimes | null
   rank: Rank
   peer_suburbs: PeerSuburb[]
   risk_flags: string[]
@@ -205,13 +215,20 @@ function Analysis({ children }: { children: React.ReactNode }) {
 
 // ── Intelligence sections ──────────────────────────────────────────────────
 
-function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSuburbs, universitiesNearby, hospitalsNearby }: {
+const PT_MODE_LABELS: Record<string, string> = {
+  train: 'Train', tram: 'Tram', ferry: 'Ferry ⛴️',
+  bus: 'Bus', limited: 'Limited PT',
+}
+
+function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSuburbs, universitiesNearby, hospitalsNearby, commuteTimes, cbdCity }: {
   score: number | null
   facts: Record<string, number | null>
   adjacentHasTrain: boolean
   adjacentTrainSuburbs: string[]
   universitiesNearby: UniEntry[]
   hospitalsNearby: HospitalEntry[]
+  commuteTimes: CommuteTimes | null
+  cbdCity: string | null
 }) {
   const hasTrain = (facts.pt_stop_train ?? 0) > 0
   const hasBizData = facts.biz_food_services != null
@@ -314,9 +331,54 @@ function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSubur
         </div>
       )}
 
-      {/* Public transport */}
+      {/* Public transport + commute times */}
       <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '16px', marginBottom: '14px' }}>
-        <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>Public Transport</div>
+        <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+          Public Transport {cbdCity ? `· Commute to ${cbdCity} CBD` : ''}
+        </div>
+
+        {/* Commute time summary bar */}
+        {commuteTimes && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+            {/* Driving */}
+            <div style={{ backgroundColor: '#2a3040', borderRadius: '6px', padding: '10px 14px' }}>
+              <div style={{ fontSize: '11px', color: '#9ca0aa', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '1px' }}>🚗 Driving</div>
+              {commuteTimes.drive_offpeak_min ? (
+                <>
+                  <div style={{ color: '#f8f8f2', fontSize: '15px', fontWeight: 600 }}>
+                    {commuteTimes.drive_offpeak_min} min <span style={{ color: '#9ca0aa', fontWeight: 400, fontSize: '12px' }}>off-peak</span>
+                  </div>
+                  <div style={{ color: '#e67e22', fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>
+                    {commuteTimes.drive_peak_min} min <span style={{ color: '#9ca0aa', fontWeight: 400, fontSize: '12px' }}>peak hour</span>
+                  </div>
+                  <div style={{ color: '#4b566a', fontSize: '11px', marginTop: '4px' }}>{commuteTimes.road_distance_km}km by road</div>
+                </>
+              ) : (
+                <div style={{ color: '#9ca0aa', fontSize: '13px' }}>Calculating…</div>
+              )}
+            </div>
+            {/* Public transport */}
+            <div style={{ backgroundColor: '#2a3040', borderRadius: '6px', padding: '10px 14px' }}>
+              <div style={{ fontSize: '11px', color: '#9ca0aa', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                🚌 By {PT_MODE_LABELS[commuteTimes.pt_mode] || 'PT'}
+              </div>
+              <div style={{ color: '#3498db', fontSize: '15px', fontWeight: 600 }}>
+                ~{commuteTimes.pt_min} min <span style={{ color: '#9ca0aa', fontWeight: 400, fontSize: '12px' }}>estimated</span>
+              </div>
+              <div style={{ color: '#4b566a', fontSize: '11px', marginTop: '4px' }}>
+                {commuteTimes.pt_mode === 'ferry' ? 'Via CityCat / ferry' :
+                 commuteTimes.pt_mode === 'train' ? 'Via rail to city' :
+                 commuteTimes.pt_mode === 'tram' ? 'Via tram to city' :
+                 'Via bus, may involve transfer'}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ fontSize: '11px', color: '#4b566a', marginBottom: '12px', fontStyle: 'italic' }}>
+          Driving via OSRM road network (off-peak = free-flow, peak = estimated congestion). PT is an estimate based on distance and available transit modes — actual journey times vary.
+        </div>
+
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
 
           {/* Train */}
@@ -765,7 +827,7 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
   const { suburb_name, state: stateCode, scores, facts, intermediates, insight, risk_flags, tags,
     sa2_count, sa2_names, sa2_codes, sa2_breakdown, population,
     schools_in_suburb, schools_adjacent, adjacent_has_train, adjacent_train_suburbs,
-    universities_nearby, hospitals_nearby, cbd_distance_km, cbd_city,
+    universities_nearby, hospitals_nearby, cbd_distance_km, cbd_city, commute_times,
     rank, peer_suburbs } = data
   const isMulti = sa2_count > 1
 
@@ -893,7 +955,7 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
       </p>
 
       <IntelPanel emoji="🏙️" label="Liveability"    dimKey="liveability_score"    score={scores.liveability_score}    sa2Breakdown={sa2_breakdown} isMulti={isMulti}>
-        <LiveabilitySection score={scores.liveability_score} facts={facts} adjacentHasTrain={adjacent_has_train} adjacentTrainSuburbs={adjacent_train_suburbs} universitiesNearby={universities_nearby || []} hospitalsNearby={hospitals_nearby || []} />
+        <LiveabilitySection score={scores.liveability_score} facts={facts} adjacentHasTrain={adjacent_has_train} adjacentTrainSuburbs={adjacent_train_suburbs} universitiesNearby={universities_nearby || []} hospitalsNearby={hospitals_nearby || []} commuteTimes={commute_times} cbdCity={cbd_city} />
       </IntelPanel>
 
       <IntelPanel emoji="📈" label="Growth"         dimKey="growth_score"          score={scores.growth_score}          sa2Breakdown={sa2_breakdown} isMulti={isMulti}>
