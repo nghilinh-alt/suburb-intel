@@ -119,6 +119,7 @@ interface GroupReport {
   schools_adjacent: SchoolEntry[]
   universities_nearby: UniEntry[]
   hospitals_nearby: HospitalEntry[]
+  shopping_nearby_count: number | null
   adjacent_has_train: boolean
   adjacent_train_suburbs: string[]
   cbd_distance_km: number | null
@@ -245,13 +246,14 @@ const PT_MODE_LABELS: Record<string, string> = {
   bus: 'Bus', limited: 'Limited PT',
 }
 
-function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSuburbs, universitiesNearby, hospitalsNearby, commuteTimes, cbdCity }: {
+function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSuburbs, universitiesNearby, hospitalsNearby, shoppingNearbyCount, commuteTimes, cbdCity }: {
   score: number | null
   facts: Record<string, number | null>
   adjacentHasTrain: boolean
   adjacentTrainSuburbs: string[]
   universitiesNearby: UniEntry[]
   hospitalsNearby: HospitalEntry[]
+  shoppingNearbyCount: number | null
   commuteTimes: CommuteTimes | null
   cbdCity: string | null
 }) {
@@ -293,15 +295,15 @@ function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSubur
             ) : null)}
           </div>
           {facts.biz_total != null && (
-            <div style={{ marginTop: '10px', fontSize: '12px', color: '#9ca0aa' }}>
-              {facts.biz_total.toLocaleString()} total registered businesses in this SA2
+            <div style={{ marginTop: '10px', fontSize: '11px', color: '#4b566a' }}>
+              {facts.biz_total.toLocaleString()} total registered businesses (includes construction, professional services, finance etc.)
             </div>
           )}
         </div>
       )}
 
       {/* Key Nearby Facilities */}
-      {(universitiesNearby.length > 0 || hospitalsNearby.length > 0 || (facts.osm_shopping_centres ?? 0) > 0) && (
+      {(universitiesNearby.length > 0 || hospitalsNearby.length > 0 || (shoppingNearbyCount ?? 0) > 0) && (
         <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '16px', marginBottom: '14px' }}>
           <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>
             Key Nearby Facilities
@@ -344,12 +346,15 @@ function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSubur
             </div>
           )}
 
-          {/* Major shopping */}
-          {(facts.osm_shopping_centres ?? 0) > 0 && (
-            <div>
-              <div style={{ fontSize: '12px', color: '#f39c12', marginBottom: '4px', fontWeight: 600 }}>🛍️ Major Shopping</div>
-              <div style={{ color: '#d1d5da', fontSize: '13px' }}>
-                {facts.osm_shopping_centres} major shopping centre{(facts.osm_shopping_centres ?? 0) > 1 ? 's' : ''} in this suburb
+          {/* Major shopping centres */}
+          {(shoppingNearbyCount ?? 0) > 0 && (
+            <div style={{ marginBottom: '10px' }}>
+              <div style={{ fontSize: '12px', color: '#f39c12', marginBottom: '6px', fontWeight: 600 }}>🛍️ Major Shopping</div>
+              <div style={{ color: '#d1d5da', fontSize: '13px', padding: '6px 0', borderBottom: '1px solid #3a4050' }}>
+                {shoppingNearbyCount} major shopping centre{(shoppingNearbyCount ?? 0) > 1 ? 's' : ''} in this suburb
+              </div>
+              <div style={{ fontSize: '11px', color: '#4b566a', marginTop: '4px' }}>
+                Retail destination anchor — supports local services and foot traffic
               </div>
             </div>
           )}
@@ -424,19 +429,14 @@ function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSubur
             )}
           </div>
 
-          {/* Ferry */}
-          {((facts.pt_stop_ferry ?? 0) > 0) ? (
+          {/* Ferry — only show if present */}
+          {(facts.pt_stop_ferry ?? 0) > 0 && (
             <div style={{ padding: '8px 10px', borderRadius: '6px', backgroundColor: '#1a2a3a' }}>
               <div style={{ fontSize: '18px', marginBottom: '2px' }}>⛴️</div>
               <div style={{ color: '#3498db', fontSize: '13px', fontWeight: 600 }}>
                 {facts.pt_stop_ferry} ferry stop{(facts.pt_stop_ferry ?? 0) > 1 ? 's' : ''}
               </div>
               <div style={{ color: '#9ca0aa', fontSize: '11px' }}>CityCat / ferry service</div>
-            </div>
-          ) : (
-            <div style={{ padding: '8px 10px', borderRadius: '6px', backgroundColor: '#2a3040' }}>
-              <div style={{ fontSize: '18px', marginBottom: '2px' }}>⛴️</div>
-              <div style={{ color: '#4b566a', fontSize: '13px' }}>No ferry access</div>
             </div>
           )}
 
@@ -875,7 +875,7 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
   const { suburb_name, state: stateCode, scores, facts, intermediates, insight, risk_flags, tags,
     sa2_count, sa2_names, sa2_codes, sa2_breakdown, population,
     schools_in_suburb, schools_adjacent, adjacent_has_train, adjacent_train_suburbs,
-    universities_nearby, hospitals_nearby, cbd_distance_km, cbd_city, commute_times,
+    universities_nearby, hospitals_nearby, shopping_nearby_count, cbd_distance_km, cbd_city, commute_times,
     market_data, rank, peer_suburbs } = data
   const isMulti = sa2_count > 1
 
@@ -897,7 +897,19 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
         </div>
         {tags.length > 0 && (
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
-            {tags.map(t => <span key={t} style={{ padding: '4px 12px', backgroundColor: '#2a3a4a', color: '#7ec8e3', borderRadius: '20px', fontSize: '12px', fontWeight: 600 }}>{t}</span>)}
+            {tags.map(t => {
+              // Add brief context to the generic "Emerging Opportunity" tag
+              const note = t === 'Emerging Opportunity'
+                ? ` — score ${scores.investment_score?.toFixed(1)}/10`
+                : t === 'Moderate Growth'
+                ? ` — score ${scores.investment_score?.toFixed(1)}/10`
+                : ''
+              return (
+                <span key={t} style={{ padding: '4px 12px', backgroundColor: '#2a3a4a', color: '#7ec8e3', borderRadius: '20px', fontSize: '12px', fontWeight: 600 }}>
+                  {t}{note}
+                </span>
+              )
+            })}
           </div>
         )}
       </div>
@@ -1098,7 +1110,7 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
       </p>
 
       <IntelPanel emoji="🏙️" label="Liveability"    dimKey="liveability_score"    score={scores.liveability_score}    sa2Breakdown={sa2_breakdown} isMulti={isMulti}>
-        <LiveabilitySection score={scores.liveability_score} facts={facts} adjacentHasTrain={adjacent_has_train} adjacentTrainSuburbs={adjacent_train_suburbs} universitiesNearby={universities_nearby || []} hospitalsNearby={hospitals_nearby || []} commuteTimes={commute_times} cbdCity={cbd_city} />
+        <LiveabilitySection score={scores.liveability_score} facts={facts} adjacentHasTrain={adjacent_has_train} adjacentTrainSuburbs={adjacent_train_suburbs} universitiesNearby={universities_nearby || []} hospitalsNearby={hospitals_nearby || []} shoppingNearbyCount={shopping_nearby_count} commuteTimes={commute_times} cbdCity={cbd_city} />
       </IntelPanel>
 
       <IntelPanel emoji="📈" label="Growth"         dimKey="growth_score"          score={scores.growth_score}          sa2Breakdown={sa2_breakdown} isMulti={isMulti}>
@@ -1138,19 +1150,29 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
                 <div style={{ backgroundColor: '#343b47', border: '1px solid #4b566a', borderRadius: '10px', padding: '16px', cursor: 'pointer' }}>
                   <div style={{ fontWeight: 600, color: '#f8f8f2', fontSize: '15px', marginBottom: '4px' }}>{p.suburb_name}</div>
                   <div style={{ color: '#9ca0aa', fontSize: '12px', marginBottom: '10px' }}>{p.state}{p.population ? ` · ${p.population.toLocaleString()}` : ''}</div>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <span style={{ fontSize: '22px', fontWeight: 800, color: scoreColor(p.investment_score) }}>{fv(p.investment_score)}</span>
-                    <div style={{ flex: 1 }}>
-                      {(['liveability_score', 'growth_score', 'education_score'] as const).map(k => (
-                        <div key={k} style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
-                          <div style={{ fontSize: '10px', color: '#9ca0aa', width: '54px' }}>{k.replace('_score','').replace('liveability','livab.').replace('education','educ.')}</div>
-                          <div style={{ flex: 1, height: '3px', backgroundColor: '#4b566a', borderRadius: '2px' }}>
-                            <div style={{ height: '100%', width: `${(p[k] ?? 0) * 10}%`, backgroundColor: scoreColor(p[k]), borderRadius: '2px' }} />
-                          </div>
-                          <div style={{ fontSize: '10px', color: scoreColor(p[k]), width: '22px', textAlign: 'right' }}>{fv(p[k])}</div>
-                        </div>
-                      ))}
+                  <div style={{ marginTop: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '26px', fontWeight: 800, color: scoreColor(p.investment_score) }}>{fv(p.investment_score)}</span>
+                      <span style={{ fontSize: '11px', color: '#9ca0aa' }}>/ 10</span>
                     </div>
+                    {([
+                      { k: 'liveability_score', l: 'Liveability' },
+                      { k: 'growth_score',      l: 'Growth' },
+                      { k: 'education_score',   l: 'Education' },
+                      { k: 'demographic_score', l: 'Demographics' },
+                      { k: 'housing_score',     l: 'Housing' },
+                    ] as { k: keyof PeerSuburb; l: string }[]).map(({ k, l }) => {
+                      const v = p[k] as number | null
+                      return (
+                        <div key={String(k)} style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '3px' }}>
+                          <div style={{ fontSize: '10px', color: '#9ca0aa', width: '70px', flexShrink: 0 }}>{l}</div>
+                          <div style={{ flex: 1, height: '4px', backgroundColor: '#4b566a', borderRadius: '2px' }}>
+                            <div style={{ height: '100%', width: `${(v ?? 0) * 10}%`, backgroundColor: scoreColor(v), borderRadius: '2px' }} />
+                          </div>
+                          <div style={{ fontSize: '10px', color: scoreColor(v), width: '26px', textAlign: 'right', fontWeight: 600 }}>{fv(v)}</div>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               </a>

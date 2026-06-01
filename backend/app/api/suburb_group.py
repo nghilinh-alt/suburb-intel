@@ -214,6 +214,9 @@ async def suburb_group_report(
     else:
         adjacent_train_suburbs = []
 
+    # Shopping centres count (from facts — Overture osm_shopping_centres)
+    shopping_nearby_count = int((sa2_breakdown[0]["facts"].get("osm_shopping_centres") or 0) if sa2_breakdown else 0)
+
     # ── Key nearby facilities (radius-based, not just adjacency) ─────────
     # Get SA2 centroid for distance calculations
     centroid_lat, centroid_lon = await _get_centroid(db, sa2_codes[0])
@@ -250,6 +253,16 @@ async def suburb_group_report(
 
         # Public & private hospitals within ~15km
         DEGREE_15KM_H = 0.135
+        # Specialist facility exclusion — filter out day surgeries, endoscopy centres,
+        # cancer infusion centres, dialysis clinics, hyperbaric units: not what investors
+        # mean when they say "hospital nearby". Show real hospitals only.
+        _SPECIALIST_KEYWORDS = (
+            "endoscopy", "day surgery", "day hospital", "eye-tech",
+            "cancer centre", "cancer center", "dialysis", "hyperbaric",
+            "imaging", "pathology", "radiology", "ophthalmology",
+            "ivf", "fertility", "rehabilitation service",
+        )
+
         hosp_stmt2 = text("""
             SELECT h.name, h.facility_type, h.lat, h.lon
             FROM health_facilities h
@@ -266,14 +279,19 @@ async def suburb_group_report(
         })).all()
         for hname, htype, hlat, hlon in hosp_rows2:
             dist_km = _haversine_km(centroid_lat, centroid_lon, hlat, hlon)
-            if dist_km <= 15:
-                hospitals_nearby.append({
-                    "name": hname,
-                    "type": "Public Hospital" if htype == "public_hospital" else "Private Hospital",
-                    "dist_km": round(dist_km, 1),
-                    "in_suburb": dist_km <= 2.0,
-                    "impact_score": 1.0 if dist_km <= 2.0 else 0.5,
-                })
+            if dist_km > 15:
+                continue
+            # Skip specialist-only facilities
+            name_lower = (hname or "").lower()
+            if any(kw in name_lower for kw in _SPECIALIST_KEYWORDS):
+                continue
+            hospitals_nearby.append({
+                "name": hname,
+                "type": "Public Hospital" if htype == "public_hospital" else "Private Hospital",
+                "dist_km": round(dist_km, 1),
+                "in_suburb": dist_km <= 2.0,
+                "impact_score": 1.0 if dist_km <= 2.0 else 0.5,
+            })
         hospitals_nearby.sort(key=lambda x: x["dist_km"])
 
     # ── PropRadar market data (on-demand, 30-day cache) ──────────────────
@@ -439,8 +457,9 @@ async def suburb_group_report(
         "peer_suburbs": peers,
 
         # Key nearby facilities
-        "universities_nearby": unis,
-        "hospitals_nearby":    hospitals_nearby,
+        "universities_nearby":    unis,
+        "hospitals_nearby":       hospitals_nearby,
+        "shopping_nearby_count":  shopping_nearby_count,
 
         "schools_in_suburb":  schools_in,
         "schools_adjacent":   schools_adj[:8],  # cap adjacent list
