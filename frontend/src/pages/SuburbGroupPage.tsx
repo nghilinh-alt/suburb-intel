@@ -331,54 +331,55 @@ function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSubur
         </div>
       )}
 
-      {/* Public transport + commute times */}
-      <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '16px', marginBottom: '14px' }}>
-        <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-          Public Transport {cbdCity ? `· Commute to ${cbdCity} CBD` : ''}
-        </div>
-
-        {/* Commute time summary bar */}
-        {commuteTimes && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
-            {/* Driving */}
-            <div style={{ backgroundColor: '#2a3040', borderRadius: '6px', padding: '10px 14px' }}>
-              <div style={{ fontSize: '11px', color: '#9ca0aa', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '1px' }}>🚗 Driving</div>
-              {commuteTimes.drive_offpeak_min ? (
-                <>
-                  <div style={{ color: '#f8f8f2', fontSize: '15px', fontWeight: 600 }}>
-                    {commuteTimes.drive_offpeak_min} min <span style={{ color: '#9ca0aa', fontWeight: 400, fontSize: '12px' }}>off-peak</span>
-                  </div>
-                  <div style={{ color: '#e67e22', fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>
-                    {commuteTimes.drive_peak_min} min <span style={{ color: '#9ca0aa', fontWeight: 400, fontSize: '12px' }}>peak hour</span>
-                  </div>
-                  <div style={{ color: '#4b566a', fontSize: '11px', marginTop: '4px' }}>{commuteTimes.road_distance_km}km by road</div>
-                </>
-              ) : (
-                <div style={{ color: '#9ca0aa', fontSize: '13px' }}>Calculating…</div>
-              )}
+      {/* Commute to CBD — standalone section */}
+      {commuteTimes && cbdCity && (
+        <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '16px', marginBottom: '14px' }}>
+          <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+            🏙️ Commute to {cbdCity} CBD
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' }}>
+            {/* Drive off-peak */}
+            <div style={{ backgroundColor: '#2a3040', borderRadius: '6px', padding: '10px 12px' }}>
+              <div style={{ fontSize: '11px', color: '#9ca0aa', marginBottom: '4px' }}>🚗 Drive off-peak</div>
+              <div style={{ color: '#f8f8f2', fontSize: '20px', fontWeight: 700, lineHeight: 1 }}>
+                {commuteTimes.drive_offpeak_min}<span style={{ fontSize: '12px', fontWeight: 400, color: '#9ca0aa' }}> min</span>
+              </div>
+              <div style={{ fontSize: '11px', color: '#4b566a', marginTop: '3px' }}>{commuteTimes.road_distance_km}km by road</div>
             </div>
-            {/* Public transport */}
-            <div style={{ backgroundColor: '#2a3040', borderRadius: '6px', padding: '10px 14px' }}>
-              <div style={{ fontSize: '11px', color: '#9ca0aa', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                🚌 By {PT_MODE_LABELS[commuteTimes.pt_mode] || 'PT'}
+            {/* Drive peak */}
+            <div style={{ backgroundColor: '#2a3040', borderRadius: '6px', padding: '10px 12px' }}>
+              <div style={{ fontSize: '11px', color: '#9ca0aa', marginBottom: '4px' }}>🚗 Drive peak hour</div>
+              <div style={{ color: '#e67e22', fontSize: '20px', fontWeight: 700, lineHeight: 1 }}>
+                {commuteTimes.drive_peak_min}<span style={{ fontSize: '12px', fontWeight: 400, color: '#9ca0aa' }}> min</span>
               </div>
-              <div style={{ color: '#3498db', fontSize: '15px', fontWeight: 600 }}>
-                ~{commuteTimes.pt_min} min <span style={{ color: '#9ca0aa', fontWeight: 400, fontSize: '12px' }}>estimated</span>
+              <div style={{ fontSize: '11px', color: '#4b566a', marginTop: '3px' }}>incl. congestion</div>
+            </div>
+            {/* PT */}
+            <div style={{ backgroundColor: '#2a3040', borderRadius: '6px', padding: '10px 12px' }}>
+              <div style={{ fontSize: '11px', color: '#9ca0aa', marginBottom: '4px' }}>
+                {commuteTimes.pt_mode === 'ferry' ? '⛴️ By Ferry' :
+                 commuteTimes.pt_mode === 'train' ? '🚆 By Train' :
+                 commuteTimes.pt_mode === 'tram'  ? '🚊 By Tram'  : '🚌 By Bus'}
               </div>
-              <div style={{ color: '#4b566a', fontSize: '11px', marginTop: '4px' }}>
-                {commuteTimes.pt_mode === 'ferry' ? 'Via CityCat / ferry' :
-                 commuteTimes.pt_mode === 'train' ? 'Via rail to city' :
-                 commuteTimes.pt_mode === 'tram' ? 'Via tram to city' :
-                 'Via bus, may involve transfer'}
+              <div style={{ color: '#3498db', fontSize: '20px', fontWeight: 700, lineHeight: 1 }}>
+                ~{commuteTimes.pt_min}<span style={{ fontSize: '12px', fontWeight: 400, color: '#9ca0aa' }}> min</span>
+              </div>
+              <div style={{ fontSize: '11px', color: '#4b566a', marginTop: '3px' }}>
+                {commuteTimes.pt_mode === 'ferry' ? 'CityCat / ferry' :
+                 commuteTimes.pt_mode === 'train' ? 'Via rail' :
+                 commuteTimes.pt_mode === 'tram'  ? 'Via tram' : 'May need transfer'}
               </div>
             </div>
           </div>
-        )}
-
-        <div style={{ fontSize: '11px', color: '#4b566a', marginBottom: '12px', fontStyle: 'italic' }}>
-          Driving via OSRM road network (off-peak = free-flow, peak = estimated congestion). PT is an estimate based on distance and available transit modes — actual journey times vary.
+          <div style={{ fontSize: '11px', color: '#4b566a', marginTop: '10px', fontStyle: 'italic' }}>
+            Driving: OSRM road network (free-flow off-peak, estimated peak congestion). PT: estimate from distance and transit modes available — actual times vary.
+          </div>
         </div>
+      )}
 
+      {/* Public transport stops */}
+      <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '16px', marginBottom: '14px' }}>
+        <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>Public Transport</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
 
           {/* Train */}
