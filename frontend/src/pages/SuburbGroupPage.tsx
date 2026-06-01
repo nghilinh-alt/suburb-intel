@@ -314,18 +314,66 @@ function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSubur
 
       {/* Public transport */}
       <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '16px', marginBottom: '14px' }}>
-        <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>Public Transport</div>
-        {hasTrain ? (
-          <div style={{ color: '#2ecc71', fontSize: '14px', marginBottom: '6px' }}>🚉 Train station in this suburb</div>
-        ) : (
-          <div style={{ color: '#9ca0aa', fontSize: '14px', marginBottom: '6px' }}>No train station in this suburb</div>
-        )}
-        {!hasTrain && adjacentHasTrain && (
-          <div style={{ color: '#f39c12', fontSize: '13px', marginBottom: '6px' }}>
-            🚉 Train access in adjacent suburb{adjacentTrainSuburbs.length > 0 ? `: ${adjacentTrainSuburbs.slice(0, 2).join(', ')}` : ''}
+        <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>Public Transport</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+
+          {/* Train */}
+          <div style={{ padding: '8px 10px', borderRadius: '6px', backgroundColor: hasTrain ? '#1a3a1a' : '#2a3040' }}>
+            <div style={{ fontSize: '18px', marginBottom: '2px' }}>🚆</div>
+            {hasTrain ? (
+              <div style={{ color: '#2ecc71', fontSize: '13px', fontWeight: 600 }}>
+                {facts.pt_stop_train} train stop{(facts.pt_stop_train ?? 0) > 1 ? 's' : ''}
+              </div>
+            ) : adjacentHasTrain ? (
+              <div>
+                <div style={{ color: '#f39c12', fontSize: '13px', fontWeight: 600 }}>Train nearby</div>
+                <div style={{ color: '#9ca0aa', fontSize: '11px' }}>{adjacentTrainSuburbs.slice(0,1).join(', ')}</div>
+              </div>
+            ) : (
+              <div style={{ color: '#4b566a', fontSize: '13px' }}>No train access</div>
+            )}
           </div>
-        )}
-        <div style={{ color: '#9ca0aa', fontSize: '13px' }}>Bus services present — route count data coming soon</div>
+
+          {/* Ferry */}
+          {((facts.pt_stop_ferry ?? 0) > 0) ? (
+            <div style={{ padding: '8px 10px', borderRadius: '6px', backgroundColor: '#1a2a3a' }}>
+              <div style={{ fontSize: '18px', marginBottom: '2px' }}>⛴️</div>
+              <div style={{ color: '#3498db', fontSize: '13px', fontWeight: 600 }}>
+                {facts.pt_stop_ferry} ferry stop{(facts.pt_stop_ferry ?? 0) > 1 ? 's' : ''}
+              </div>
+              <div style={{ color: '#9ca0aa', fontSize: '11px' }}>CityCat / ferry service</div>
+            </div>
+          ) : (
+            <div style={{ padding: '8px 10px', borderRadius: '6px', backgroundColor: '#2a3040' }}>
+              <div style={{ fontSize: '18px', marginBottom: '2px' }}>⛴️</div>
+              <div style={{ color: '#4b566a', fontSize: '13px' }}>No ferry access</div>
+            </div>
+          )}
+
+          {/* Tram (only show if present — Brisbane has none) */}
+          {(facts.pt_stop_tram ?? 0) > 0 && (
+            <div style={{ padding: '8px 10px', borderRadius: '6px', backgroundColor: '#1a3a2a' }}>
+              <div style={{ fontSize: '18px', marginBottom: '2px' }}>🚊</div>
+              <div style={{ color: '#2ecc71', fontSize: '13px', fontWeight: 600 }}>
+                {facts.pt_stop_tram} tram stop{(facts.pt_stop_tram ?? 0) > 1 ? 's' : ''}
+              </div>
+            </div>
+          )}
+
+          {/* Bus */}
+          <div style={{ padding: '8px 10px', borderRadius: '6px', backgroundColor: (facts.pt_stop_bus ?? 0) > 10 ? '#2a2a1a' : '#2a3040' }}>
+            <div style={{ fontSize: '18px', marginBottom: '2px' }}>🚌</div>
+            {(facts.pt_stop_bus ?? 0) > 0 ? (
+              <div style={{ color: (facts.pt_stop_bus ?? 0) > 20 ? '#f39c12' : '#9ca0aa', fontSize: '13px', fontWeight: 600 }}>
+                {facts.pt_stop_bus} bus stops
+              </div>
+            ) : (
+              <div style={{ color: '#4b566a', fontSize: '13px' }}>No bus stops</div>
+            )}
+            <div style={{ color: '#4b566a', fontSize: '11px' }}>Route count coming soon</div>
+          </div>
+
+        </div>
       </div>
     </>
   )

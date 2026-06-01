@@ -107,6 +107,7 @@ async def suburb_group_report(
                 "pt_stop_train":            census.pt_stop_train if census else None,
                 "pt_stop_tram":             census.pt_stop_tram if census else None,
                 "pt_stop_bus":              census.pt_stop_bus if census else None,
+                "pt_stop_ferry":            census.pt_stop_ferry if census else None,
                 "osm_cafes":                census.osm_cafes if census else None,
                 "osm_restaurants":          census.osm_restaurants if census else None,
                 "osm_parks":                census.osm_parks if census else None,
