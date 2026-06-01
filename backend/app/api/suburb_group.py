@@ -276,6 +276,41 @@ async def suburb_group_report(
                 })
         hospitals_nearby.sort(key=lambda x: x["dist_km"])
 
+    # ── CBD distance ──────────────────────────────────────────────────────
+    _CBD_COORDS: dict[str, tuple[float, float]] = {
+        "NSW": (-33.868, 151.207),   # Sydney CBD
+        "VIC": (-37.813, 144.963),   # Melbourne CBD
+        "QLD": (-27.469, 153.027),   # Brisbane CBD
+        "WA":  (-31.953, 115.860),   # Perth CBD
+        "SA":  (-34.921, 138.600),   # Adelaide CBD
+        "TAS": (-42.880, 147.324),   # Hobart CBD
+        "ACT": (-35.282, 149.128),   # Canberra CBD
+        "NT":  (-12.463, 130.841),   # Darwin CBD
+    }
+    cbd_distance_km: float | None = None
+    cbd_city: str | None = None
+    if centroid_lat is not None and agg.state in _CBD_COORDS:
+        cbd_lat, cbd_lon = _CBD_COORDS[agg.state]
+        cbd_distance_km = round(_haversine_km(centroid_lat, centroid_lon, cbd_lat, cbd_lon), 1)
+        cbd_city = {
+            "NSW": "Sydney", "VIC": "Melbourne", "QLD": "Brisbane",
+            "WA": "Perth", "SA": "Adelaide", "TAS": "Hobart",
+            "ACT": "Canberra", "NT": "Darwin",
+        }.get(agg.state)
+
+    # ── Override "no_hospital_nearby" risk flag using radius data ────────
+    # The adjacency model misses hospitals 3-8km away (correct enough for most suburbs
+    # but wrong for inner suburbs like Bulimba where RBWH is 3.2km away).
+    # If any hospital is found within 10km via radius search, remove the flag.
+    stored_risk_flags: list[str] = list(agg.risk_flags or [])
+    nearest_hospital_km = hospitals_nearby[0]["dist_km"] if hospitals_nearby else None
+    if "no_hospital_nearby" in stored_risk_flags and nearest_hospital_km is not None and nearest_hospital_km <= 10.0:
+        stored_risk_flags = [f for f in stored_risk_flags if f != "no_hospital_nearby"]
+    # Add a hospital flag for those genuinely far from any hospital
+    if nearest_hospital_km is not None and nearest_hospital_km > 20.0:
+        if "no_hospital_nearby" not in stored_risk_flags:
+            stored_risk_flags.append("no_hospital_nearby")
+
     # ── Percentile rank ───────────────────────────────────────────────────
     # National rank: how does this suburb compare to all 2,300 aggregates?
     inv = agg.investment_score or 0
@@ -386,7 +421,10 @@ async def suburb_group_report(
         "adjacent_has_train": adjacent_has_train,
         "adjacent_train_suburbs": adjacent_train_suburbs,
 
-        "risk_flags":    agg.risk_flags or [],
+        "cbd_distance_km": cbd_distance_km,
+        "cbd_city":        cbd_city,
+
+        "risk_flags":    stored_risk_flags,
         "tags":          _generate_tags(agg),
         "insight":       _generate_insight(agg),
         "score_version": agg.score_version,

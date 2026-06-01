@@ -88,6 +88,8 @@ interface GroupReport {
   hospitals_nearby: HospitalEntry[]
   adjacent_has_train: boolean
   adjacent_train_suburbs: string[]
+  cbd_distance_km: number | null
+  cbd_city: string | null
   rank: Rank
   peer_suburbs: PeerSuburb[]
   risk_flags: string[]
@@ -763,7 +765,7 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
   const { suburb_name, state: stateCode, scores, facts, intermediates, insight, risk_flags, tags,
     sa2_count, sa2_names, sa2_codes, sa2_breakdown, population,
     schools_in_suburb, schools_adjacent, adjacent_has_train, adjacent_train_suburbs,
-    universities_nearby, hospitals_nearby,
+    universities_nearby, hospitals_nearby, cbd_distance_km, cbd_city,
     rank, peer_suburbs } = data
   const isMulti = sa2_count > 1
 
@@ -775,7 +777,14 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
           <h1 style={{ fontSize: '42px', margin: 0 }}>{suburb_name}</h1>
           <span style={{ color: '#9ca0aa', fontSize: '22px' }}>{stateCode}</span>
         </div>
-        {population && <p style={{ color: '#9ca0aa', margin: '4px 0 0', fontSize: '13px' }}>{population.toLocaleString()} residents</p>}
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginTop: '4px', flexWrap: 'wrap' }}>
+          {population && <p style={{ color: '#9ca0aa', margin: 0, fontSize: '13px' }}>{population.toLocaleString()} residents</p>}
+          {cbd_distance_km != null && cbd_city && (
+            <p style={{ color: '#9ca0aa', margin: 0, fontSize: '13px' }}>
+              📍 <span style={{ color: '#d1d5da' }}>{cbd_distance_km}km</span> from {cbd_city} CBD
+            </p>
+          )}
+        </div>
         {tags.length > 0 && (
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
             {tags.map(t => <span key={t} style={{ padding: '4px 12px', backgroundColor: '#2a3a4a', color: '#7ec8e3', borderRadius: '20px', fontSize: '12px', fontWeight: 600 }}>{t}</span>)}
