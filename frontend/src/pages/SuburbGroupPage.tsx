@@ -54,6 +54,21 @@ interface PeerSuburb {
   education_score: number | null
 }
 
+interface UniEntry {
+  name: string
+  school_type: string
+  dist_km: number
+  in_suburb: boolean
+}
+
+interface HospitalEntry {
+  name: string
+  type: string
+  dist_km: number
+  in_suburb: boolean
+  impact_score: number
+}
+
 interface GroupReport {
   suburb_id: string
   suburb_name: string
@@ -69,6 +84,8 @@ interface GroupReport {
   intermediates: Record<string, number | null>
   schools_in_suburb: SchoolEntry[]
   schools_adjacent: SchoolEntry[]
+  universities_nearby: UniEntry[]
+  hospitals_nearby: HospitalEntry[]
   adjacent_has_train: boolean
   adjacent_train_suburbs: string[]
   rank: Rank
@@ -186,11 +203,13 @@ function Analysis({ children }: { children: React.ReactNode }) {
 
 // ── Intelligence sections ──────────────────────────────────────────────────
 
-function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSuburbs }: {
+function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSuburbs, universitiesNearby, hospitalsNearby }: {
   score: number | null
   facts: Record<string, number | null>
   adjacentHasTrain: boolean
   adjacentTrainSuburbs: string[]
+  universitiesNearby: UniEntry[]
+  hospitalsNearby: HospitalEntry[]
 }) {
   const hasTrain = (facts.pt_stop_train ?? 0) > 0
   const hasBizData = facts.biz_food_services != null
@@ -232,6 +251,62 @@ function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSubur
           {facts.biz_total != null && (
             <div style={{ marginTop: '10px', fontSize: '12px', color: '#9ca0aa' }}>
               {facts.biz_total.toLocaleString()} total registered businesses in this SA2
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Key Nearby Facilities */}
+      {(universitiesNearby.length > 0 || hospitalsNearby.length > 0 || (facts.osm_shopping_centres ?? 0) > 0) && (
+        <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '16px', marginBottom: '14px' }}>
+          <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+            Key Nearby Facilities
+          </div>
+
+          {/* Universities / TAFE */}
+          {universitiesNearby.length > 0 && (
+            <div style={{ marginBottom: '10px' }}>
+              <div style={{ fontSize: '12px', color: '#7ec8e3', marginBottom: '6px', fontWeight: 600 }}>🎓 University / TAFE</div>
+              {universitiesNearby.map((u, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #3a4050' }}>
+                  <span style={{ color: '#d1d5da', fontSize: '13px' }}>{u.name}</span>
+                  <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px',
+                    backgroundColor: u.in_suburb ? '#1a3a1a' : '#2a3040',
+                    color: u.in_suburb ? '#2ecc71' : '#9ca0aa' }}>
+                    {u.in_suburb ? 'In suburb' : `${u.dist_km}km away`}
+                  </span>
+                </div>
+              ))}
+              <div style={{ fontSize: '11px', color: '#4b566a', marginTop: '4px', fontStyle: 'italic' }}>
+                Access to university/TAFE expands the renter pool to students and academics — positive for rental demand.
+              </div>
+            </div>
+          )}
+
+          {/* Hospitals */}
+          {hospitalsNearby.length > 0 && (
+            <div style={{ marginBottom: '10px' }}>
+              <div style={{ fontSize: '12px', color: '#e07070', marginBottom: '6px', fontWeight: 600 }}>🏥 Hospitals</div>
+              {hospitalsNearby.slice(0, 6).map((h, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #3a4050' }}>
+                  <span style={{ color: '#d1d5da', fontSize: '13px' }}>{h.name}</span>
+                  <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px',
+                    backgroundColor: h.dist_km <= 3 ? '#3a1a1a' : '#2a3040',
+                    color: h.dist_km <= 3 ? '#e07070' : '#9ca0aa' }}>
+                    {h.type} · {h.dist_km <= 1 ? 'In suburb' : `${h.dist_km}km`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Major shopping */}
+          {(facts.osm_shopping_centres ?? 0) > 0 && (
+            <div>
+              <div style={{ fontSize: '12px', color: '#f39c12', marginBottom: '4px', fontWeight: 600 }}>🛍️ Major Shopping</div>
+              <div style={{ color: '#d1d5da', fontSize: '13px' }}>
+                {facts.osm_shopping_centres} major shopping centre{(facts.osm_shopping_centres ?? 0) > 1 ? 's' : ''} in this suburb
+              </div>
             </div>
           )}
         </div>
@@ -394,6 +469,9 @@ function EducationSection({ score, schoolsIn, schoolsAdj }: {
       {schoolsIn.length === 0 && schoolsAdj.length === 0 && (
         <p style={{ color: '#9ca0aa', fontSize: '14px' }}>School data not available for this suburb.</p>
       )}
+      <div style={{ fontSize: '12px', color: '#4b566a', fontStyle: 'italic', marginTop: '8px' }}>
+        University and TAFE access is shown in the Liveability section — it is not factored into the education score as most suburbs have none, and absence should not penalise family-friendly suburbs.
+      </div>
     </>
   )
 }
@@ -637,6 +715,7 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
   const { suburb_name, state: stateCode, scores, facts, intermediates, insight, risk_flags, tags,
     sa2_count, sa2_names, sa2_codes, sa2_breakdown, population,
     schools_in_suburb, schools_adjacent, adjacent_has_train, adjacent_train_suburbs,
+    universities_nearby, hospitals_nearby,
     rank, peer_suburbs } = data
   const isMulti = sa2_count > 1
 
@@ -757,7 +836,7 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
       </p>
 
       <IntelPanel emoji="🏙️" label="Liveability"    dimKey="liveability_score"    score={scores.liveability_score}    sa2Breakdown={sa2_breakdown} isMulti={isMulti}>
-        <LiveabilitySection score={scores.liveability_score} facts={facts} adjacentHasTrain={adjacent_has_train} adjacentTrainSuburbs={adjacent_train_suburbs} />
+        <LiveabilitySection score={scores.liveability_score} facts={facts} adjacentHasTrain={adjacent_has_train} adjacentTrainSuburbs={adjacent_train_suburbs} universitiesNearby={universities_nearby || []} hospitalsNearby={hospitals_nearby || []} />
       </IntelPanel>
 
       <IntelPanel emoji="📈" label="Growth"         dimKey="growth_score"          score={scores.growth_score}          sa2Breakdown={sa2_breakdown} isMulti={isMulti}>

@@ -39,7 +39,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-SCORE_VERSION = "v1.2"
+SCORE_VERSION = "v1.3"
 
 # ---------------------------------------------------------------------------
 # Composite weights
@@ -251,20 +251,26 @@ def _score_liveability(df: pd.DataFrame) -> pd.DataFrame:
 
 def _score_education(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Heavily weights the best single school in the catchment — this is what
-    actually drives property price premiums. A Top 5% school adjacent to a
-    suburb creates a measurable catchment premium regardless of other schools.
+    Education score measures K-12 school quality and access — the primary
+    investment driver (catchment premium, family demand).
 
-    Tertiary weight cut from 15% → 5%: universities are rare and most
-    suburban SA2s have zero, making it a near-useless differentiator that
-    was previously pulling suburban school scores down unfairly.
+    Tertiary (university/TAFE) removed from score entirely:
+    - Having no university nearby should NOT penalise a suburb
+    - Most suburbs have zero tertiary, so it was an unfair drag
+    - University proximity is shown as an informational bonus in the UI
+      rather than impacting the investment score
+
+    Formula:
+      best_school_pct  45% — quality of single best K-12 school in/adjacent
+      icsea_pct        30% — average school quality across all catchment schools
+      top_school_pct   20% — breadth of high-performing school options
+      secondary_pct     5% — secondary school access (families need P+S)
     """
     df["education_score"] = _dim(df, {
-        "best_school_pct": 40,   # NEW: quality of single best school in catchment
-        "icsea_pct":       25,   # avg ICSEA quality across all schools
-        "top_school_pct":  20,   # count of high-performing schools (choice)
-        "secondary_pct":   10,   # secondary school access (family completeness)
-        "tertiary_pct":     5,   # tertiary (rare in suburbs, low impact)
+        "best_school_pct": 45,
+        "icsea_pct":       30,
+        "top_school_pct":  20,
+        "secondary_pct":    5,
     })
     return df
 

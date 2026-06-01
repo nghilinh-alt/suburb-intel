@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import os
 from sqlalchemy import func, text
-from app.db.models import ABSCEntensMetrics, SuburbAggregate, SuburbScore, SA2Region, School, SA2SchoolLink
+from app.db.models import ABSCEntensMetrics, SuburbAggregate, SuburbScore, SA2Region, School, SA2SchoolLink, HealthFacility, SA2HealthLink
 from app.db.session import get_db
 
 logger = logging.getLogger(__name__)
@@ -213,6 +213,68 @@ async def suburb_group_report(
     else:
         adjacent_train_suburbs = []
 
+    # ── Key nearby facilities (radius-based, not just adjacency) ─────────
+    # Get SA2 centroid for distance calculations
+    centroid_lat, centroid_lon = await _get_centroid(db, sa2_codes[0])
+
+    unis: list[dict] = []
+    hospitals_nearby: list[dict] = []
+
+    if centroid_lat is not None:
+        # Universities / TAFE within ~15km (using bounding box pre-filter then haversine)
+        DEGREE_15KM = 0.135
+        uni_stmt = text("""
+            SELECT s.name, s.school_type, s.lat, s.lon
+            FROM schools s
+            WHERE s.school_type IN ('University','TAFE')
+              AND s.lat BETWEEN :lat_min AND :lat_max
+              AND s.lon BETWEEN :lon_min AND :lon_max
+              AND s.lat IS NOT NULL AND s.lon IS NOT NULL
+            ORDER BY s.name
+        """)
+        uni_rows = (await db.execute(uni_stmt, {
+            "lat_min": centroid_lat - DEGREE_15KM, "lat_max": centroid_lat + DEGREE_15KM,
+            "lon_min": centroid_lon - DEGREE_15KM, "lon_max": centroid_lon + DEGREE_15KM,
+        })).all()
+        for uname, utype, ulat, ulon in uni_rows:
+            dist_km = _haversine_km(centroid_lat, centroid_lon, ulat, ulon)
+            if dist_km <= 15:
+                unis.append({
+                    "name": uname,
+                    "school_type": utype,
+                    "dist_km": round(dist_km, 1),
+                    "in_suburb": dist_km <= 2.0,
+                })
+        unis.sort(key=lambda x: x["dist_km"])
+
+        # Public & private hospitals within ~15km
+        DEGREE_15KM_H = 0.135
+        hosp_stmt2 = text("""
+            SELECT h.name, h.facility_type, h.lat, h.lon
+            FROM health_facilities h
+            WHERE h.facility_type IN ('public_hospital','private_hospital')
+              AND h.is_operational = 1
+              AND h.lat BETWEEN :lat_min AND :lat_max
+              AND h.lon BETWEEN :lon_min AND :lon_max
+              AND h.lat IS NOT NULL AND h.lon IS NOT NULL
+            ORDER BY h.name
+        """)
+        hosp_rows2 = (await db.execute(hosp_stmt2, {
+            "lat_min": centroid_lat - DEGREE_15KM_H, "lat_max": centroid_lat + DEGREE_15KM_H,
+            "lon_min": centroid_lon - DEGREE_15KM_H, "lon_max": centroid_lon + DEGREE_15KM_H,
+        })).all()
+        for hname, htype, hlat, hlon in hosp_rows2:
+            dist_km = _haversine_km(centroid_lat, centroid_lon, hlat, hlon)
+            if dist_km <= 15:
+                hospitals_nearby.append({
+                    "name": hname,
+                    "type": "Public Hospital" if htype == "public_hospital" else "Private Hospital",
+                    "dist_km": round(dist_km, 1),
+                    "in_suburb": dist_km <= 2.0,
+                    "impact_score": 1.0 if dist_km <= 2.0 else 0.5,
+                })
+        hospitals_nearby.sort(key=lambda x: x["dist_km"])
+
     # ── Percentile rank ───────────────────────────────────────────────────
     # National rank: how does this suburb compare to all 2,300 aggregates?
     inv = agg.investment_score or 0
@@ -314,6 +376,10 @@ async def suburb_group_report(
         },
         "peer_suburbs": peers,
 
+        # Key nearby facilities
+        "universities_nearby": unis,
+        "hospitals_nearby":    hospitals_nearby,
+
         "schools_in_suburb":  schools_in,
         "schools_adjacent":   schools_adj[:8],  # cap adjacent list
         "adjacent_has_train": adjacent_has_train,
@@ -408,6 +474,16 @@ async def suburb_places(
         "cached":     was_cached,
         "status":     "ok" if counts else "fetch_failed",
     }
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Approximate distance in km between two WGS84 points."""
+    import math
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+    return R * 2 * math.asin(math.sqrt(a))
 
 
 async def _get_centroid(db: AsyncSession, sa2_code: str) -> tuple[float | None, float | None]:
