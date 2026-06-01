@@ -119,6 +119,7 @@ interface GroupReport {
   schools_adjacent: SchoolEntry[]
   universities_nearby: UniEntry[]
   hospitals_nearby: HospitalEntry[]
+  shopping_nearby: Array<{ sa2_name: string; store_count: number; dist_km: number | null; in_suburb: boolean }>
   shopping_nearby_count: number | null
   adjacent_has_train: boolean
   adjacent_train_suburbs: string[]
@@ -246,13 +247,14 @@ const PT_MODE_LABELS: Record<string, string> = {
   bus: 'Bus', limited: 'Limited PT',
 }
 
-function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSuburbs, universitiesNearby, hospitalsNearby, shoppingNearbyCount, commuteTimes, cbdCity }: {
+function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSuburbs, universitiesNearby, hospitalsNearby, shoppingNearby, shoppingNearbyCount, commuteTimes, cbdCity }: {
   score: number | null
   facts: Record<string, number | null>
   adjacentHasTrain: boolean
   adjacentTrainSuburbs: string[]
   universitiesNearby: UniEntry[]
   hospitalsNearby: HospitalEntry[]
+  shoppingNearby: Array<{ sa2_name: string; store_count: number; dist_km: number | null; in_suburb: boolean }>
   shoppingNearbyCount: number | null
   commuteTimes: CommuteTimes | null
   cbdCity: string | null
@@ -303,7 +305,7 @@ function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSubur
       )}
 
       {/* Key Nearby Facilities */}
-      {(universitiesNearby.length > 0 || hospitalsNearby.length > 0 || (shoppingNearbyCount ?? 0) > 0) && (
+      {(universitiesNearby.length > 0 || hospitalsNearby.length > 0 || shoppingNearby.length > 0) && (
         <div style={{ backgroundColor: '#343b47', borderRadius: '8px', padding: '16px', marginBottom: '14px' }}>
           <div style={{ fontSize: '12px', color: '#9ca0aa', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>
             Key Nearby Facilities
@@ -346,15 +348,24 @@ function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSubur
             </div>
           )}
 
-          {/* Major shopping centres */}
-          {(shoppingNearbyCount ?? 0) > 0 && (
+          {/* Major shopping — in suburb + adjacent SA2s */}
+          {shoppingNearby.length > 0 && (
             <div style={{ marginBottom: '10px' }}>
-              <div style={{ fontSize: '12px', color: '#f39c12', marginBottom: '6px', fontWeight: 600 }}>🛍️ Major Shopping</div>
-              <div style={{ color: '#d1d5da', fontSize: '13px', padding: '6px 0', borderBottom: '1px solid #3a4050' }}>
-                {shoppingNearbyCount} major shopping centre{(shoppingNearbyCount ?? 0) > 1 ? 's' : ''} in this suburb
-              </div>
-              <div style={{ fontSize: '11px', color: '#4b566a', marginTop: '4px' }}>
-                Retail destination anchor — supports local services and foot traffic
+              <div style={{ fontSize: '12px', color: '#f39c12', marginBottom: '6px', fontWeight: 600 }}>🛍️ Major Shopping &amp; Retail</div>
+              {shoppingNearby.slice(0, 5).map((s, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #3a4050' }}>
+                  <span style={{ color: '#d1d5da', fontSize: '13px' }}>
+                    {s.in_suburb ? s.sa2_name : `${s.sa2_name} area`}
+                  </span>
+                  <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px',
+                    backgroundColor: s.in_suburb ? '#2a2a1a' : '#2a3040',
+                    color: s.in_suburb ? '#f39c12' : '#9ca0aa' }}>
+                    {s.in_suburb ? 'In suburb' : s.dist_km != null ? `~${s.dist_km}km` : 'Adjacent'}
+                  </span>
+                </div>
+              ))}
+              <div style={{ fontSize: '11px', color: '#4b566a', marginTop: '6px' }}>
+                Major retail anchors (Kmart, Big W, Myer, David Jones etc.) in or near this suburb
               </div>
             </div>
           )}
@@ -875,7 +886,7 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
   const { suburb_name, state: stateCode, scores, facts, intermediates, insight, risk_flags, tags,
     sa2_count, sa2_names, sa2_codes, sa2_breakdown, population,
     schools_in_suburb, schools_adjacent, adjacent_has_train, adjacent_train_suburbs,
-    universities_nearby, hospitals_nearby, shopping_nearby_count, cbd_distance_km, cbd_city, commute_times,
+    universities_nearby, hospitals_nearby, shopping_nearby, shopping_nearby_count, cbd_distance_km, cbd_city, commute_times,
     market_data, rank, peer_suburbs } = data
   const isMulti = sa2_count > 1
 
@@ -1110,7 +1121,7 @@ function ReadyView({ data, onNavigateSA2 }: { data: GroupReport; onNavigateSA2: 
       </p>
 
       <IntelPanel emoji="🏙️" label="Liveability"    dimKey="liveability_score"    score={scores.liveability_score}    sa2Breakdown={sa2_breakdown} isMulti={isMulti}>
-        <LiveabilitySection score={scores.liveability_score} facts={facts} adjacentHasTrain={adjacent_has_train} adjacentTrainSuburbs={adjacent_train_suburbs} universitiesNearby={universities_nearby || []} hospitalsNearby={hospitals_nearby || []} shoppingNearbyCount={shopping_nearby_count} commuteTimes={commute_times} cbdCity={cbd_city} />
+        <LiveabilitySection score={scores.liveability_score} facts={facts} adjacentHasTrain={adjacent_has_train} adjacentTrainSuburbs={adjacent_train_suburbs} universitiesNearby={universities_nearby || []} hospitalsNearby={hospitals_nearby || []} shoppingNearby={shopping_nearby || []} shoppingNearbyCount={shopping_nearby_count} commuteTimes={commute_times} cbdCity={cbd_city} />
       </IntelPanel>
 
       <IntelPanel emoji="📈" label="Growth"         dimKey="growth_score"          score={scores.growth_score}          sa2Breakdown={sa2_breakdown} isMulti={isMulti}>
