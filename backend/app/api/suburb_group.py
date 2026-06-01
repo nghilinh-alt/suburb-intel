@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import os
 from sqlalchemy import func, text
-from app.db.models import ABSCEntensMetrics, SuburbAggregate, SuburbScore, SA2Region, School, SA2SchoolLink, HealthFacility, SA2HealthLink
+from app.db.models import ABSCEntensMetrics, SuburbAggregate, SuburbScore, SA2Region, School, SA2SchoolLink, HealthFacility, SA2HealthLink, ShoppingCentre
 from app.db.session import get_db
 
 logger = logging.getLogger(__name__)
@@ -223,55 +223,36 @@ async def suburb_group_report(
     if sa2_codes:
         centroid_lat, centroid_lon = await _get_centroid(db, sa2_codes[0])
 
-    # ── Shopping centres — check own SA2 + adjacent SA2s ─────────────────
-    # Overture maps department stores (Big W, Kmart, Myer) not mall containers.
-    # We look in adjacent SA2s too since shopping centres straddle boundaries.
-    # Returns list of {sa2_name, count, dist_km} sorted by distance.
+    # ── Shopping centres — named centres from OSM via shopping_centres table ─
+    # Uses proper named shopping centre containers (Sunnybank Hills Shoppingtown,
+    # Westfield, Grand Plaza etc.) NOT individual stores.
     shopping_nearby: list[dict] = []
-    own_shopping = int((sa2_breakdown[0]["facts"].get("osm_shopping_centres") or 0) if sa2_breakdown else 0)
-    if own_shopping > 0:
-        shopping_nearby.append({
-            "sa2_name": agg.suburb_name,
-            "store_count": own_shopping,
-            "dist_km": 0.0,
-            "in_suburb": True,
-        })
+    if centroid_lat is not None:
+        DEGREE_10KM = 0.09
+        shop_stmt = text("""
+            SELECT name, lat, lon
+            FROM shopping_centres
+            WHERE lat BETWEEN :lat_min AND :lat_max
+              AND lon BETWEEN :lon_min AND :lon_max
+            ORDER BY name
+        """)
+        shop_rows = (await db.execute(shop_stmt, {
+            "lat_min": centroid_lat - DEGREE_10KM,
+            "lat_max": centroid_lat + DEGREE_10KM,
+            "lon_min": centroid_lon - DEGREE_10KM,
+            "lon_max": centroid_lon + DEGREE_10KM,
+        })).all()
+        for sname, slat, slon in shop_rows:
+            dist_km = _haversine_km(centroid_lat, centroid_lon, slat, slon)
+            if dist_km <= 10:
+                shopping_nearby.append({
+                    "name":      sname,
+                    "dist_km":   round(dist_km, 1),
+                    "in_suburb": dist_km <= 1.5,
+                })
+        shopping_nearby.sort(key=lambda x: x["dist_km"])
 
-    # Adjacent SA2s via school links
-    # Build exclusion list as individual params for SQLite compatibility
-    excl_params = {f"ex{i}": c for i, c in enumerate(sa2_codes)}
-    excl_clause = " AND ".join(f"l2.sa2_code != :ex{i}" for i in range(len(sa2_codes)))
-
-    adj_shop_stmt = text(f"""
-        SELECT r.sa2_name, r.sa2_code, m.osm_shopping_centres, r.geometry_geojson
-        FROM sa2_school_link l1
-        JOIN sa2_school_link l2 ON l1.acara_id = l2.acara_id AND l2.impact_score = 0.5
-        JOIN sa2_regions r ON r.sa2_code = l2.sa2_code
-        JOIN abs_census_metrics m ON m.sa2_code = l2.sa2_code AND m.year = 2021
-        WHERE l1.sa2_code = :self_sa2
-          AND l1.impact_score = 1.0
-          AND {excl_clause}
-          AND m.osm_shopping_centres > 0
-        GROUP BY r.sa2_code
-        ORDER BY m.osm_shopping_centres DESC
-    """)
-    adj_shop_rows = (await db.execute(adj_shop_stmt, {"self_sa2": sa2_codes[0], **excl_params})).all()
-
-    for row_name, row_code, row_count, row_geom in adj_shop_rows:
-        dist_km = None
-        if centroid_lat is not None and row_geom:
-            adj_lat, adj_lon = await _get_centroid(db, row_code)
-            if adj_lat:
-                dist_km = round(_haversine_km(centroid_lat, centroid_lon, adj_lat, adj_lon), 1)
-        shopping_nearby.append({
-            "sa2_name":    row_name,
-            "store_count": int(row_count or 0),
-            "dist_km":     dist_km,
-            "in_suburb":   False,
-        })
-
-    shopping_nearby.sort(key=lambda x: (x["dist_km"] or 99))
-    shopping_nearby_count = sum(s["store_count"] for s in shopping_nearby)  # keep for compat
+    shopping_nearby_count = len(shopping_nearby)
 
     # ── Key nearby facilities (radius-based, not just adjacency) ─────────
     # centroid_lat/lon already computed above

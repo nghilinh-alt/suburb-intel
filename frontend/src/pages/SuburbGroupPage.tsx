@@ -119,7 +119,7 @@ interface GroupReport {
   schools_adjacent: SchoolEntry[]
   universities_nearby: UniEntry[]
   hospitals_nearby: HospitalEntry[]
-  shopping_nearby: Array<{ sa2_name: string; store_count: number; dist_km: number | null; in_suburb: boolean }>
+  shopping_nearby: Array<{ name: string; dist_km: number; in_suburb: boolean }>
   shopping_nearby_count: number | null
   adjacent_has_train: boolean
   adjacent_train_suburbs: string[]
@@ -256,7 +256,7 @@ function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSubur
   adjacentTrainSuburbs: string[]
   universitiesNearby: UniEntry[]
   hospitalsNearby: HospitalEntry[]
-  shoppingNearby: Array<{ sa2_name: string; store_count: number; dist_km: number | null; in_suburb: boolean }>
+  shoppingNearby: Array<{ name: string; dist_km: number; in_suburb: boolean }>
   shoppingNearbyCount: number | null
   commuteTimes: CommuteTimes | null
   cbdCity: string | null
@@ -350,24 +350,22 @@ function LiveabilitySection({ score, facts, adjacentHasTrain, adjacentTrainSubur
             </div>
           )}
 
-          {/* Major shopping — in suburb + adjacent SA2s */}
+          {/* Major shopping — named centres from OSM */}
           {shoppingNearby.length > 0 && (
             <div style={{ marginBottom: '10px' }}>
-              <div style={{ fontSize: '12px', color: '#f39c12', marginBottom: '6px', fontWeight: 600 }}>🛍️ Major Shopping &amp; Retail</div>
-              {shoppingNearby.slice(0, 5).map((s, i) => (
+              <div style={{ fontSize: '12px', color: '#f39c12', marginBottom: '6px', fontWeight: 600 }}>🛍️ Shopping Centres</div>
+              {shoppingNearby.slice(0, 6).map((s, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #3a4050' }}>
-                  <span style={{ color: '#d1d5da', fontSize: '13px' }}>
-                    {s.in_suburb ? s.sa2_name : `${s.sa2_name} area`}
-                  </span>
+                  <span style={{ color: '#d1d5da', fontSize: '13px' }}>{s.name}</span>
                   <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px',
                     backgroundColor: s.in_suburb ? '#2a2a1a' : '#2a3040',
                     color: s.in_suburb ? '#f39c12' : '#9ca0aa' }}>
-                    {s.in_suburb ? 'In suburb' : s.dist_km != null ? `~${s.dist_km}km` : 'Adjacent'}
+                    {s.in_suburb ? 'In suburb' : `${s.dist_km}km`}
                   </span>
                 </div>
               ))}
               <div style={{ fontSize: '11px', color: '#4b566a', marginTop: '6px' }}>
-                Major retail anchors (Kmart, Big W, Myer, David Jones etc.) in or near this suburb
+                Named shopping centres sourced from OpenStreetMap
               </div>
             </div>
           )}

@@ -272,6 +272,28 @@ class School(Base):
     )
 
 
+class ShoppingCentre(Base):
+    """Named shopping centres sourced from OpenStreetMap (shop=mall).
+
+    Loaded by python -m app.ingestion.shopping_centres_loader
+    Refreshed periodically — OSM data is community-maintained and improving.
+    """
+    __tablename__ = "shopping_centres"
+
+    osm_id    = Column(Text, primary_key=True, comment="OSM element ID")
+    name      = Column(Text, nullable=False)
+    lat       = Column(Float, nullable=True)
+    lon       = Column(Float, nullable=True)
+    state     = Column(Text, nullable=True)
+    suburb    = Column(Text, nullable=True)
+    postcode  = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_shopping_centres_latlon", "lat", "lon"),
+        Index("ix_shopping_centres_state", "state"),
+    )
+
+
 class PropRadarSuburbCache(Base):
     """PropRadar suburb market data — cached for 30 days on first request.
 
