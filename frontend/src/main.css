@@ -1,23 +1,117 @@
 @import "tailwindcss";
 
+@theme {
+  --color-wave-950: #080b12;
+  --color-wave-900: #0d1117;
+  --color-wave-800: #151b27;
+  --color-wave-700: #1e2638;
+  --color-wave-600: #28334a;
+  --color-wave-500: #36445e;
+  --color-wave-400: #4a5a78;
+  --color-wave-300: #6b7fa0;
+  --color-wave-200: #9aafc8;
+  --color-wave-100: #cdd8e8;
+  --color-wave-50:  #edf1f7;
+
+  --color-teal-400: #2dd4bf;
+  --color-teal-300: #5eead4;
+  --color-teal-200: #99f6e4;
+
+  --color-emerald-500: #10b981;
+  --color-emerald-400: #34d399;
+  --color-emerald-300: #6ee7b7;
+
+  --color-amber-500: #f59e0b;
+  --color-amber-400: #fbbf24;
+  --color-amber-300: #fcd34d;
+
+  --color-rose-500: #f43f5e;
+  --color-rose-400: #fb7185;
+  --color-rose-300: #fda4af;
+
+  --color-sky-400: #38bdf8;
+  --color-sky-300: #7dd3fc;
+
+  --font-sans: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+}
+
+/* Legacy CSS vars kept for inline-style components not yet migrated */
 :root {
-  --bg-base: #282c34;
-  --bg-surface: #343b47;
-  --bg-accent: #4b566a;
-  --fg-primary: #f8f8f2;
-  --fg-secondary: #d1d5da;
-  --fg-muted: #9ca0aa;
+  --bg-base:     #0d1117;
+  --bg-surface:  #151b27;
+  --bg-accent:   #28334a;
+  --fg-primary:  #cdd8e8;
+  --fg-secondary: #9aafc8;
+  --fg-muted:    #6b7fa0;
+  --teal:        #2dd4bf;
+  --emerald:     #34d399;
+  --amber:       #fbbf24;
+  --rose:        #fb7185;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 body {
   background-color: var(--bg-base);
   color: var(--fg-primary);
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
+/* Shared card utility */
+.card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--bg-accent);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+}
+
+/* Kept for legacy score-card refs */
 .score-card {
   background-color: var(--bg-surface);
   border: 1px solid var(--bg-accent);
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 24px;
+}
+
+/* ── Mobile responsive helpers ── */
+@media (max-width: 640px) {
+  /* Score hero — stack score number above insight text */
+  .hero-row {
+    flex-direction: column !important;
+    gap: 20px !important;
+    padding: 20px !important;
+  }
+
+  /* Sticky nav — compress padding */
+  header > div {
+    padding: 0 16px !important;
+  }
+
+  /* Page content — tighter side padding */
+  main {
+    padding: 24px 16px !important;
+  }
+}
+
+/* Leaflet dark tooltip override */
+.leaflet-tooltip.dw-tooltip {
+  background-color: #151b27;
+  border: 1px solid #28334a;
+  border-radius: 8px;
+  color: #cdd8e8;
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  padding: 6px 10px;
+}
+.leaflet-tooltip.dw-tooltip::before {
+  border-top-color: #28334a;
 }

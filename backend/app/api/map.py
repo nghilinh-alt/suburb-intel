@@ -1,10 +1,10 @@
 """Map data endpoints.
 
 Two endpoints:
-  GET /map/centroids          — lightweight: all 2,454 SA2 centroids with scores
-                                (~100KB JSON, used for national overview map)
+  GET /map/centroids          — lightweight: ~2,454 SA2 centroids with scores
+                                (excludes ABS phantom SA2s; ~100KB JSON)
   GET /map/geojson?state=NSW  — heavy: polygon GeoJSON for one state, choropleth
-                                (~2-3MB per state, loaded on demand)
+                                (~2-3MB per large state, loaded on demand)
 """
 
 from __future__ import annotations
@@ -18,11 +18,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import SA2Region, SuburbScore
+from app.db.models import SA2Region, SuburbAggregate, SuburbScore
 from app.db.session import get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# In-memory cache — centroids are computed from geometry strings which never
+# change between deploys, so one computation per worker process is fine.
+_centroids_cache: dict | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -66,13 +70,28 @@ def _centroid_of_geojson(geojson_str: str) -> tuple[float, float] | None:
 # Endpoints
 # ---------------------------------------------------------------------------
 
+@router.post("/cache/clear")
+async def clear_map_cache() -> dict:
+    """Clear the in-memory centroids cache so it is recomputed on the next request.
+    Call this after a data update (new scores, new geometry) without restarting the server.
+    """
+    global _centroids_cache
+    _centroids_cache = None
+    return {"status": "cleared"}
+
+
 @router.get("/centroids")
 async def map_centroids(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     """Return all SA2 centroids with investment scores as GeoJSON FeatureCollection.
 
-    Lightweight (~100KB) — suitable for loading all 2,454 SA2s at once for
-    the national overview dot-map.
+    Computed once per worker process and cached in memory — centroid geometry
+    is static between DB ingestion runs.
     """
+    global _centroids_cache
+    if _centroids_cache is not None:
+        return _centroids_cache
+
+    # Main query: scores + geometry
     stmt = (
         select(
             SA2Region.sa2_code,
@@ -85,8 +104,18 @@ async def map_centroids(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
         )
         .outerjoin(SuburbScore, SuburbScore.sa2_code == SA2Region.sa2_code)
         .where(SA2Region.geometry_geojson.isnot(None))
+        # Exclude ABS statistical phantom SA2s (Migratory/Offshore/No usual address)
+        .where(~SA2Region.sa2_code.like('%7979799'))
+        .where(~SA2Region.sa2_code.like('%9999499'))
     )
     rows = (await db.execute(stmt)).all()
+
+    # Build sa2_code → suburb_id map from SuburbAggregate
+    agg_rows = (await db.execute(select(SuburbAggregate))).scalars().all()
+    sa2_to_suburb_id: dict[str, str] = {}
+    for agg in agg_rows:
+        for code in (agg.sa2_codes or []):
+            sa2_to_suburb_id[code] = agg.suburb_id
 
     features = []
     for sa2_code, sa2_name, state, geojson_str, inv, liv, grw in rows:
@@ -98,16 +127,19 @@ async def map_centroids(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
             "type": "Feature",
             "geometry": {"type": "Point", "coordinates": [lon, lat]},
             "properties": {
-                "sa2_code":        sa2_code,
-                "sa2_name":        sa2_name,
-                "state":           state,
-                "investment_score": round(inv, 2) if inv is not None else None,
+                "sa2_code":         sa2_code,
+                "suburb_id":        sa2_to_suburb_id.get(sa2_code),
+                "sa2_name":         sa2_name,
+                "state":            state,
+                "investment_score":  round(inv, 2) if inv is not None else None,
                 "liveability_score": round(liv, 2) if liv is not None else None,
-                "growth_score":     round(grw, 2) if grw is not None else None,
+                "growth_score":      round(grw, 2) if grw is not None else None,
             },
         })
 
-    return {"type": "FeatureCollection", "features": features}
+    _centroids_cache = {"type": "FeatureCollection", "features": features}
+    logger.info("Map centroids cached: %d features", len(features))
+    return _centroids_cache
 
 
 @router.get("/geojson")
@@ -139,6 +171,8 @@ async def map_geojson(
         .outerjoin(SuburbScore, SuburbScore.sa2_code == SA2Region.sa2_code)
         .where(SA2Region.state == state.upper())
         .where(SA2Region.geometry_geojson.isnot(None))
+        .where(~SA2Region.sa2_code.like('%7979799'))
+        .where(~SA2Region.sa2_code.like('%9999499'))
     )
     rows = (await db.execute(stmt)).all()
 

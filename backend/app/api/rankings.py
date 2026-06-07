@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import ABSCEntensMetrics, SA2Region, SuburbScore
+from app.db.models import ABSCEntensMetrics, SA2Region, SuburbAggregate, SuburbScore
 from app.db.session import get_db
 
 router = APIRouter()
@@ -65,6 +65,10 @@ async def get_rankings(
             (ABSCEntensMetrics.sa2_code == SuburbScore.sa2_code)
             & (ABSCEntensMetrics.year == 2021),
         )
+        # Exclude ABS statistical phantom SA2s (Migratory/Offshore/No usual address)
+        # These end in 7979799 or 9999499 and are not real residential areas
+        .where(~SA2Region.sa2_code.like('%7979799'))
+        .where(~SA2Region.sa2_code.like('%9999499'))
         .order_by(order_col.desc().nulls_last())
         .limit(limit)
     )
@@ -73,6 +77,16 @@ async def get_rankings(
         stmt = stmt.where(SA2Region.state == state.upper())
 
     rows = (await db.execute(stmt)).all()
+
+    # Build a sa2_code → suburb_id lookup from SuburbAggregate
+    # (each aggregate row has a JSON list of sa2_codes it covers)
+    sa2_codes_in_results = {score.sa2_code for score, *_ in rows}
+    agg_rows = (await db.execute(select(SuburbAggregate))).scalars().all()
+    sa2_to_suburb_id: dict[str, str] = {}
+    for agg in agg_rows:
+        for code in (agg.sa2_codes or []):
+            if code in sa2_codes_in_results:
+                sa2_to_suburb_id[code] = agg.suburb_id
 
     return {
         "score_type":  score_type,
@@ -83,6 +97,7 @@ async def get_rankings(
             {
                 "rank":        i + 1,
                 "sa2_code":    score.sa2_code,
+                "suburb_id":   sa2_to_suburb_id.get(score.sa2_code),
                 "sa2_name":    name,
                 "state":       st,
                 "population":  pop,

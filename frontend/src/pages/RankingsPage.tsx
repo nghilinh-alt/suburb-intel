@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import SeverityBadge from '../components/SeverityBadge'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 interface RankedSuburb {
   rank: number
   sa2_code: string
+  suburb_id: string | null
   sa2_name: string
   state: string
   population: number | null
@@ -21,36 +24,50 @@ interface RankingsResponse {
 }
 
 const SCORE_LABELS: Record<string, string> = {
-  investment_score:    'Overall Investment',
-  liveability_score:  'Liveability',
-  education_score:    'Education',
-  growth_score:       'Growth',
-  demographic_score:  'Demographics',
-  housing_score:      'Housing Market',
+  investment_score:      'Overall Investment',
+  liveability_score:    'Liveability',
+  education_score:      'Education',
+  growth_score:         'Growth',
+  demographic_score:    'Demographics',
+  housing_score:        'Housing Market',
   infrastructure_score: 'Infrastructure',
   gentrification_index: 'Gentrification',
 }
 
 const STATES = ['NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT']
 
-function ScoreBadge({ value }: { value: number | null }) {
-  if (value == null) return <span style={{ color: '#9ca0aa' }}>—</span>
-  const color = value >= 7 ? '#2ecc71' : value >= 5 ? '#f39c12' : '#e74c3c'
-  return <span style={{ color, fontWeight: 700, fontSize: '28px' }}>{value.toFixed(1)}</span>
+function scoreColor(v: number | null): string {
+  if (v == null) return '#6b7fa0'
+  if (v >= 7) return '#34d399'
+  if (v >= 5) return '#fbbf24'
+  return '#fb7185'
 }
+
+function ScoreBadge({ value }: { value: number | null }) {
+  if (value == null) return <span style={{ color: '#6b7fa0' }}>—</span>
+  return (
+    <span style={{ color: scoreColor(value), fontWeight: 800, fontSize: '30px', letterSpacing: '-0.03em' }}>
+      {value.toFixed(1)}
+    </span>
+  )
+}
+
+const LIMITS = [25, 50, 100, 200]
 
 export default function RankingsPage() {
   const [scoreType, setScoreType] = useState('investment_score')
   const [stateFilter, setStateFilter] = useState('')
+  const [limit, setLimit] = useState(25)
   const [data, setData] = useState<RankingsResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
+  usePageTitle('Top Suburbs')
 
   useEffect(() => {
     setLoading(true)
     setError(null)
-    const params = new URLSearchParams({ score_type: scoreType, limit: '30' })
+    const params = new URLSearchParams({ score_type: scoreType, limit: String(limit) })
     if (stateFilter) params.set('state', stateFilter)
 
     fetch(`/api/rankings?${params}`)
@@ -61,59 +78,86 @@ export default function RankingsPage() {
       .then(setData)
       .catch(e => setError(e instanceof Error ? e.message : 'Error'))
       .finally(() => setLoading(false))
-  }, [scoreType, stateFilter])
+  }, [scoreType, stateFilter, limit])
 
   return (
     <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
-      <h2 style={{ fontSize: '32px', marginBottom: '8px' }}>Top Suburbs</h2>
-      <p style={{ color: '#9ca0aa', marginBottom: '32px' }}>
-        2,472 Australian SA2 regions ranked by investment signals from government open data.
+      <h1 style={{ fontSize: '36px', fontWeight: 800, marginBottom: '8px', color: '#cdd8e8', letterSpacing: '-0.03em' }}>
+        Top Suburbs
+      </h1>
+      <p style={{ color: '#6b7fa0', marginBottom: '32px', fontSize: '15px' }}>
+        {data
+          ? `Showing top ${data.rankings.length} of ${stateFilter ? `${data.rankings.length > limit - 1 ? limit + '+' : data.rankings.length}` : '~2,450'} ${stateFilter || 'Australian'} suburbs · ranked by ${SCORE_LABELS[scoreType] ?? scoreType}`
+          : '2,450+ Australian SA2 regions ranked by investment signals from government open data.'}
       </p>
 
       {/* Filter bar */}
-      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '32px' }}>
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '32px', alignItems: 'center' }}>
         {Object.entries(SCORE_LABELS).map(([key, label]) => (
           <button key={key} onClick={() => setScoreType(key)}
             style={{
-              padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px',
-              backgroundColor: scoreType === key ? '#f8f8f2' : '#343b47',
-              color: scoreType === key ? '#282c34' : '#d1d5da',
-              border: scoreType === key ? 'none' : '1px solid #4b566a',
+              padding: '7px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px',
+              backgroundColor: scoreType === key ? '#2dd4bf' : '#151b27',
+              color: scoreType === key ? '#0d1117' : '#9aafc8',
+              border: scoreType === key ? 'none' : '1px solid #28334a',
               fontWeight: scoreType === key ? 700 : 400,
+              transition: 'all 0.15s',
             }}>
             {label}
           </button>
         ))}
         <select value={stateFilter} onChange={e => setStateFilter(e.target.value)}
-          style={{ padding: '8px 14px', backgroundColor: '#343b47', color: '#f8f8f2', border: '1px solid #4b566a', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
+          style={{ padding: '7px 14px', backgroundColor: '#151b27', color: '#9aafc8', border: '1px solid #28334a', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>
           <option value="">All States</option>
           {STATES.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
+
+        {/* Show N selector */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto' }}>
+          <span style={{ color: '#6b7fa0', fontSize: '12px' }}>Show</span>
+          {LIMITS.map(n => (
+            <button key={n} onClick={() => setLimit(n)}
+              style={{
+                padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px',
+                backgroundColor: limit === n ? 'rgba(45,212,191,0.15)' : 'transparent',
+                color: limit === n ? '#2dd4bf' : '#6b7fa0',
+                border: limit === n ? '1px solid rgba(45,212,191,0.3)' : '1px solid transparent',
+              }}>
+              {n}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {loading && <p style={{ color: '#9ca0aa' }}>Loading rankings…</p>}
-      {error   && <p style={{ color: '#e74c3c' }}>{error}</p>}
+      {loading && <p style={{ color: '#6b7fa0' }}>Loading rankings…</p>}
+      {error   && <p style={{ color: '#fb7185' }}>{error}</p>}
 
       {data && !loading && (
-        <div style={{ display: 'grid', gap: '12px' }}>
+        <div style={{ display: 'grid', gap: '10px' }}>
           {data.rankings.map(suburb => (
-            <button key={suburb.sa2_code} onClick={() => navigate(`/suburb/${suburb.sa2_code}`)}
+            <button key={suburb.sa2_code} onClick={() => navigate(suburb.suburb_id ? `/suburb-group/${suburb.suburb_id}` : `/suburb/${suburb.sa2_code}`)}
               style={{
                 width: '100%', textAlign: 'left', cursor: 'pointer',
-                backgroundColor: suburb.rank === 1 ? '#2a3a2a' : '#343b47',
-                border: suburb.rank === 1 ? '1px solid #2ecc71' : '1px solid #4b566a',
-                borderRadius: '10px', padding: '20px 24px',
+                backgroundColor: '#151b27',
+                border: suburb.rank === 1 ? '1px solid rgba(52,211,153,0.4)' : '1px solid #28334a',
+                borderRadius: '12px', padding: '18px 24px',
                 display: 'grid', gridTemplateColumns: '48px 1fr auto auto',
-                alignItems: 'center', gap: '16px', color: '#f8f8f2',
+                alignItems: 'center', gap: '16px', color: '#cdd8e8',
+                boxShadow: '0 2px 12px rgba(0,0,0,0.35)',
+                transition: 'border-color 0.15s',
               }}>
               {/* Rank */}
-              <span style={{ fontSize: '22px', fontWeight: 700, color: suburb.rank <= 3 ? '#f39c12' : '#9ca0aa' }}>
+              <span style={{
+                fontSize: '20px', fontWeight: 800, letterSpacing: '-0.02em',
+                color: suburb.rank === 1 ? '#34d399' : suburb.rank <= 3 ? '#fbbf24' : '#6b7fa0',
+              }}>
                 #{suburb.rank}
               </span>
+
               {/* Name + meta */}
               <div>
-                <div style={{ fontWeight: 600, fontSize: '17px' }}>{suburb.sa2_name}</div>
-                <div style={{ color: '#9ca0aa', fontSize: '13px', marginTop: '2px' }}>
+                <div style={{ fontWeight: 700, fontSize: '16px', color: '#cdd8e8' }}>{suburb.sa2_name}</div>
+                <div style={{ color: '#6b7fa0', fontSize: '13px', marginTop: '2px' }}>
                   {suburb.state}
                   {suburb.population ? ` · ${suburb.population.toLocaleString()} residents` : ''}
                   {suburb.median_income ? ` · $${Math.round(suburb.median_income / 1000)}k median income` : ''}
@@ -121,27 +165,33 @@ export default function RankingsPage() {
                 {suburb.risk_flags.length > 0 && (
                   <div style={{ marginTop: '6px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                     {suburb.risk_flags.slice(0, 3).map(f => (
-                      <span key={f} style={{ fontSize: '11px', padding: '2px 8px', backgroundColor: '#4a3030', color: '#e07070', borderRadius: '4px' }}>
-                        {f.replace(/_/g, ' ')}
-                      </span>
+                      <SeverityBadge key={f} level="bad" label={f.replace(/_/g, ' ')} />
                     ))}
                   </div>
                 )}
               </div>
+
               {/* Primary score */}
               <div style={{ textAlign: 'center', minWidth: '64px' }}>
                 <ScoreBadge value={suburb.scores[scoreType] ?? null} />
-                <div style={{ color: '#9ca0aa', fontSize: '11px', marginTop: '2px' }}>
+                <div style={{ color: '#6b7fa0', fontSize: '11px', marginTop: '2px' }}>
                   {SCORE_LABELS[scoreType]}
                 </div>
               </div>
-              {/* Mini dimension bars */}
+
+              {/* Mini dimension scores */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px', minWidth: '180px' }}>
-                {Object.entries(SCORE_LABELS).filter(([k]) => k !== scoreType && k !== 'gentrification_index').slice(0, 4).map(([key, lbl]) => (
-                  <div key={key} style={{ fontSize: '11px', color: '#9ca0aa' }}>
-                    <span style={{ color: '#d1d5da' }}>{(suburb.scores[key] ?? 0).toFixed(1)}</span> {lbl}
-                  </div>
-                ))}
+                {Object.entries(SCORE_LABELS)
+                  .filter(([k]) => k !== scoreType && k !== 'gentrification_index')
+                  .slice(0, 4)
+                  .map(([key, lbl]) => {
+                    const v = suburb.scores[key] ?? 0
+                    return (
+                      <div key={key} style={{ fontSize: '11px', color: '#6b7fa0' }}>
+                        <span style={{ color: scoreColor(v), fontWeight: 600 }}>{v.toFixed(1)}</span> {lbl}
+                      </div>
+                    )
+                  })}
               </div>
             </button>
           ))}

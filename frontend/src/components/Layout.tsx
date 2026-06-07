@@ -16,38 +16,70 @@ export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#282c34', color: '#f8f8f2', padding: '20px' }}>
-      <nav style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        marginBottom: '40px', paddingBottom: '20px', borderBottom: '1px solid #4b566a',
+    <div style={{ minHeight: '100vh', backgroundColor: '#0d1117', color: '#cdd8e8' }}>
+      {/* Top nav bar */}
+      <header style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 50,
+        backgroundColor: 'rgba(13,17,23,0.88)',
+        backdropFilter: 'blur(12px)',
+        borderBottom: '1px solid #28334a',
       }}>
-        <Link to="/" style={{ textDecoration: 'none' }}>
-          <h1 style={{ margin: 0, fontSize: '24px', color: '#f8f8f2', fontWeight: 800 }}>
-            Suburb Intelligence
-          </h1>
-        </Link>
-        <nav aria-label="Main Navigation" style={{ display: 'flex', gap: '4px' }}>
-          {NAV_LINKS.map(({ path, label }) => {
-            const active = location.pathname === path
-            return (
-              <Link key={path} to={path} style={{
-                color: active ? '#282c34' : '#d1d5da',
-                textDecoration: 'none',
-                padding: '8px 18px',
-                borderRadius: '6px',
-                fontSize: '14px',
-                fontWeight: active ? 700 : 400,
-                backgroundColor: active ? '#f8f8f2' : 'transparent',
-                transition: 'all 0.15s',
-              }}>
-                {label}
-              </Link>
-            )
-          })}
-        </nav>
-      </nav>
+        <div style={{
+          maxWidth: '1280px',
+          margin: '0 auto',
+          padding: '0 24px',
+          height: '60px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          {/* Wordmark */}
+          <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{
+              width: '28px', height: '28px',
+              borderRadius: '8px',
+              background: 'linear-gradient(135deg, #2dd4bf 0%, #38bdf8 100%)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '14px', fontWeight: 800, color: '#0d1117', flexShrink: 0,
+            }}>
+              SI
+            </span>
+            <span style={{ fontSize: '16px', fontWeight: 700, color: '#cdd8e8', letterSpacing: '-0.02em' }}>
+              Suburb Intelligence
+            </span>
+          </Link>
 
-      <main style={{ maxWidth: '1200px', margin: '0 auto' }}>
+          {/* Nav links */}
+          <nav aria-label="Main Navigation" style={{ display: 'flex', gap: '2px' }}>
+            {NAV_LINKS.map(({ path, label }) => {
+              const active = location.pathname === path
+              return (
+                <Link
+                  key={path}
+                  to={path}
+                  style={{
+                    color: active ? '#2dd4bf' : '#9aafc8',
+                    textDecoration: 'none',
+                    padding: '6px 14px',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: active ? 600 : 400,
+                    backgroundColor: active ? 'rgba(45,212,191,0.1)' : 'transparent',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {label}
+                </Link>
+              )
+            })}
+          </nav>
+        </div>
+      </header>
+
+      {/* Page content */}
+      <main style={{ maxWidth: '1280px', margin: '0 auto', padding: '40px 24px' }}>
         {children}
       </main>
     </div>

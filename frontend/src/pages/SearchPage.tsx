@@ -10,6 +10,7 @@ interface SearchResult {
   // Legacy SA2 fields (used for exact code lookups)
   sa2_code?: string
   sa2_name?: string
+  postcode?: string
   state: string
   population: number | null
   investment_score?: number | null
@@ -80,10 +81,30 @@ export default function SearchPage() {
 
   return (
     <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-      <h2 style={{ fontSize: '32px', marginBottom: '8px' }}>Search Suburbs</h2>
-      <p style={{ color: '#9ca0aa', marginBottom: '32px' }}>
-        Find any Australian suburb or SA2 region to view its investment profile.
-      </p>
+      {/* Hero */}
+      <div style={{ marginBottom: '48px', textAlign: 'center' }}>
+        <div style={{
+          display: 'inline-block',
+          padding: '4px 14px',
+          borderRadius: '99px',
+          backgroundColor: 'rgba(45,212,191,0.1)',
+          border: '1px solid rgba(45,212,191,0.25)',
+          fontSize: '12px',
+          fontWeight: 600,
+          color: '#2dd4bf',
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+          marginBottom: '20px',
+        }}>
+          Intelligence done differently
+        </div>
+        <h1 style={{ fontSize: '40px', fontWeight: 800, color: '#cdd8e8', margin: '0 0 12px', letterSpacing: '-0.03em', lineHeight: 1.15 }}>
+          Find your next suburb
+        </h1>
+        <p style={{ color: '#6b7fa0', fontSize: '16px', margin: 0, maxWidth: '520px', marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.6 }}>
+          Data-driven analysis for every Australian suburb — demographics, liveability, infrastructure, and investment signals in one place.
+        </p>
+      </div>
 
       {/* Search input */}
       <div style={{ position: 'relative', marginBottom: '8px' }}>
@@ -95,13 +116,14 @@ export default function SearchPage() {
           autoFocus
           style={{
             width: '100%', boxSizing: 'border-box',
-            padding: '16px 48px 16px 16px',
+            padding: '18px 52px 18px 20px',
             fontSize: '18px',
-            backgroundColor: '#343b47',
-            color: '#f8f8f2',
-            border: '1px solid #4b566a',
-            borderRadius: '8px',
+            backgroundColor: '#151b27',
+            color: '#cdd8e8',
+            border: '1px solid #28334a',
+            borderRadius: '12px',
             outline: 'none',
+            boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
           }}
         />
         {loading && (
@@ -112,35 +134,38 @@ export default function SearchPage() {
       </div>
 
       {error && (
-        <p style={{ color: '#e74c3c', marginBottom: '16px', fontSize: '14px' }}>{error}</p>
+        <p style={{ color: '#fb7185', marginBottom: '16px', fontSize: '14px' }}>{error}</p>
       )}
 
       {/* Live results */}
       {results.length > 0 && (
-        <div style={{ marginBottom: '40px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #4b566a' }}>
+        <div style={{ marginBottom: '40px', borderRadius: '12px', overflow: 'hidden', border: '1px solid #28334a', boxShadow: '0 4px 20px rgba(0,0,0,0.5)' }}>
           {results.map(r => (
             <button
-              key={r.sa2_code}
+              key={r.suburb_id ?? r.sa2_code}
               onClick={() => handleSelect(r)}
               style={{
                 width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '14px 20px', backgroundColor: '#343b47', border: 'none',
-                borderBottom: '1px solid #4b566a', cursor: 'pointer', color: '#f8f8f2', textAlign: 'left',
+                padding: '14px 20px', backgroundColor: '#151b27', border: 'none',
+                borderBottom: '1px solid #1e2638', cursor: 'pointer', color: '#cdd8e8', textAlign: 'left',
               }}
             >
               <div>
                 <div style={{ fontWeight: 600, fontSize: '16px' }}>{r.suburb_name ?? r.sa2_name}</div>
-                <div style={{ color: '#9ca0aa', fontSize: '13px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginTop: '2px' }}>
-                  {r.postcode && <span style={{ padding: '1px 6px', backgroundColor: '#2a3a4a', color: '#7ec8e3', borderRadius: '4px', fontSize: '11px' }}>📮 {r.postcode}</span>}
+                <div style={{ color: '#6b7fa0', fontSize: '13px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginTop: '2px' }}>
+                  {r.postcode && <span style={{ padding: '1px 8px', backgroundColor: 'rgba(56,189,248,0.1)', color: '#38bdf8', borderRadius: '4px', fontSize: '11px', border: '1px solid rgba(56,189,248,0.2)' }}>📮 {r.postcode}</span>}
                   {r.sa2_count && r.sa2_count > 1 ? <span>{r.sa2_count} areas</span> : null}
                   {r.sa2_code ? <span>SA2 {r.sa2_code}</span> : null}
                 </div>
               </div>
-              <div style={{ textAlign: 'right', color: '#9ca0aa', fontSize: '13px' }}>
-                <div>{r.state}</div>
+              <div style={{ textAlign: 'right', color: '#6b7fa0', fontSize: '13px', flexShrink: 0, marginLeft: '16px' }}>
+                <div style={{ color: '#9aafc8' }}>{r.state}</div>
                 {r.population && <div>{r.population.toLocaleString()} residents</div>}
                 {r.investment_score != null && (
-                  <div style={{ color: r.investment_score >= 6.5 ? '#2ecc71' : r.investment_score >= 5 ? '#f39c12' : '#e74c3c', fontWeight: 700 }}>
+                  <div style={{
+                    color: r.investment_score >= 6.5 ? '#34d399' : r.investment_score >= 5 ? '#fbbf24' : '#fb7185',
+                    fontWeight: 700,
+                  }}>
                     ★ {r.investment_score.toFixed(1)}
                   </div>
                 )}
@@ -153,19 +178,19 @@ export default function SearchPage() {
       {/* Recent searches */}
       {recent.length > 0 && results.length === 0 && (
         <>
-          <h3 style={{ fontSize: '18px', color: '#9ca0aa', marginBottom: '16px' }}>Recent searches</h3>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+          <h3 style={{ fontSize: '14px', fontWeight: 500, color: '#6b7fa0', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Recent searches</h3>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
             {recent.map(r => (
               <button
-                key={r.sa2_code}
+                key={r.suburb_id ?? r.sa2_code}
                 onClick={() => handleSelect(r)}
                 style={{
-                  padding: '10px 18px', backgroundColor: '#343b47',
-                  color: '#f8f8f2', border: '1px solid #4b566a',
-                  borderRadius: '6px', cursor: 'pointer', fontSize: '14px',
+                  padding: '9px 16px', backgroundColor: '#151b27',
+                  color: '#cdd8e8', border: '1px solid #28334a',
+                  borderRadius: '8px', cursor: 'pointer', fontSize: '14px',
                 }}
               >
-                {r.sa2_name} <span style={{ color: '#9ca0aa' }}>{r.state}</span>
+                {r.sa2_name} <span style={{ color: '#6b7fa0' }}>{r.state}</span>
               </button>
             ))}
           </div>
@@ -174,14 +199,16 @@ export default function SearchPage() {
 
       {/* Prompt when empty */}
       {!query && recent.length === 0 && (
-        <div style={{ color: '#9ca0aa', fontSize: '15px', lineHeight: 1.8 }}>
-          <p>Try searching for:</p>
-          {['Parramatta', 'Tarneit', 'Newstead', '4115', '3030', 'Subiaco'].map(s => (
-            <button key={s} onClick={() => setQuery(s)}
-              style={{ marginRight: '10px', marginBottom: '8px', padding: '8px 16px', backgroundColor: '#343b47', color: '#d1d5da', border: '1px solid #4b566a', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
-              {s}
-            </button>
-          ))}
+        <div style={{ color: '#6b7fa0', fontSize: '14px' }}>
+          <p style={{ marginBottom: '12px' }}>Try searching for:</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {['Parramatta', 'Tarneit', 'Newstead', '4115', '3030', 'Subiaco'].map(s => (
+              <button key={s} onClick={() => setQuery(s)}
+                style={{ padding: '8px 16px', backgroundColor: '#151b27', color: '#9aafc8', border: '1px solid #28334a', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>
+                {s}
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>

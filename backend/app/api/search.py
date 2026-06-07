@@ -222,6 +222,9 @@ async def _get_suburbs_by_name(
             & (ABSCEntensMetrics.year == 2021),
         )
         .where(SA2Region.sa2_name.ilike(f"%{query}%"))
+        # Exclude ABS phantom SA2s (Migratory/Offshore/No usual address)
+        .where(~SA2Region.sa2_code.like('%7979799'))
+        .where(~SA2Region.sa2_code.like('%9999499'))
         .order_by(SA2Region.sa2_name)
         .limit(limit)
     )
@@ -266,6 +269,8 @@ async def get_top_suburbs(
                 (ABSCEntensMetrics.sa2_code == SuburbScore.sa2_code)
                 & (ABSCEntensMetrics.year == 2021),
             )
+            .where(~SA2Region.sa2_code.like('%7979799'))
+            .where(~SA2Region.sa2_code.like('%9999499'))
             .order_by(order_col.desc().nulls_last())
             .limit(limit)
         )
