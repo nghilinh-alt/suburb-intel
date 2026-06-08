@@ -290,7 +290,8 @@ def _fetch_all_zones(report: NSWZoningReport):
         if not data.get("exceededTransferLimit", False):
             break
 
-        offset += _PAGE_SIZE
+        # Increment by actual records returned — server may cap below _PAGE_SIZE
+        offset += len(features)
         time.sleep(_REQUEST_DELAY)
 
     return gpd.GeoDataFrame(records, crs="EPSG:4326")
