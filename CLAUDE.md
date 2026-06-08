@@ -11,3 +11,4 @@
 | **Population Projections** (ABS ArcGIS) | Yearly — ABS updates the feature service | Re-run `python -m app.ingestion.population_projections` |
 | **Infrastructure Australia Priority List** (PDF) | Yearly — new IPL released each year | Download new PDF to `data/infrastructure/`, re-run `python -m app.ingestion.infrastructure --pdf ../data/infrastructure/<new_pdf>` |
 | **iPAMS** (Commonwealth infrastructure projects) | Yearly — live ArcGIS feed, refresh annually | Re-run `python -m app.ingestion.ipams` (fetches directly from `spatial.infrastructure.gov.au`) |
+| **QLD Priority Development Areas** | Yearly — QLD declares new PDAs periodically | Re-run `python -m app.ingestion.planning_zones` — fetches from `AdminBoundariesFramework/MapServer/196` (migrated from deprecated EDQ service June 2026) |

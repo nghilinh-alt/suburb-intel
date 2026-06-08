@@ -1,14 +1,21 @@
 """Planning zones loader — QLD Priority Development Areas (PDAs).
 
-Fetches PDA polygon boundaries from the EDQ ArcGIS MapServer, intersects
+Fetches PDA polygon boundaries from the QLD Spatial ArcGIS service, intersects
 them with SA2 polygons, and writes overlap-weighted links.
 
 Data source
 ───────────
-EDQ Priority Development Areas MapServer (layer 10)
+QLD AdminBoundariesFramework MapServer — layer 196 (Priority development area)
 URL: https://spatial-gis.information.qld.gov.au/arcgis/rest/services/
-     PlanningCadastre/PriorityDevelopmentAreas/MapServer/10
-⚠️  Service deprecated 26 June 2026 — re-check for replacement URL after that.
+     Boundaries/AdminBoundariesFramework/MapServer/196
+
+Migration history
+─────────────────
+Previously used EDQ PlanningCadastre/PriorityDevelopmentAreas/MapServer/10.
+That service was deprecated 26 June 2026. Migrated to AdminBoundariesFramework
+layer 196 which carries the same PDA polygons with identical field names
+(pda_name, pda_status, lga_name, gazetted_date, objectid). 43 PDAs as of
+June 2026 (was 39 — 4 new PDAs declared since last run).
 
 Tables written
 ──────────────
@@ -38,9 +45,9 @@ logger = logging.getLogger(__name__)
 
 _EDQ_URL   = (
     "https://spatial-gis.information.qld.gov.au/arcgis/rest/services"
-    "/PlanningCadastre/PriorityDevelopmentAreas/MapServer/10/query"
+    "/Boundaries/AdminBoundariesFramework/MapServer/196/query"
 )
-_SOURCE    = "EDQ Priority Development Areas"
+_SOURCE    = "QLD AdminBoundariesFramework PDA (layer 196)"
 _ZONE_TYPE = "PDA"
 _STATE     = "QLD"
 
