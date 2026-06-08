@@ -72,13 +72,44 @@ _PTV_FOLDER_ROUTE_TYPE: dict[str, int] = {
 }
 
 # route_type → column name on ABSCEntensMetrics
+# Standard GTFS types (0–4) plus extended GTFS types used by Australian agencies:
+#   TfNSW uses 700–799 (bus), 712 (suburban bus), 106/100–199 (rail),
+#              204/205/200–299 (coach → bus), 400–499 (urban rail), 900–999 (light rail)
+#   TransLink QLD uses similar extensions.
 _ROUTE_TYPE_COLUMN: dict[int, str] = {
+    # Standard types
     0: "pt_stop_tram",
     1: "pt_stop_train",
     2: "pt_stop_train",
     3: "pt_stop_bus",
     4: "pt_stop_ferry",
 }
+
+def _normalise_route_type(rt: int) -> int:
+    """Map GTFS extended route type to one of the 5 standard types (0–4).
+
+    Extended types are defined in the GTFS spec and used by TfNSW, TransLink, etc.
+    Reference: https://developers.google.com/transit/gtfs/reference/extended-route-types
+    """
+    if rt in _ROUTE_TYPE_COLUMN:
+        return rt                   # already standard
+    if 100 <= rt <= 199:            # Railway Service (incl. long-distance, regional)
+        return 2
+    if 200 <= rt <= 299:            # Coach Service — treated as bus
+        return 3
+    if 400 <= rt <= 499:            # Urban Railway (metro, subway)
+        return 2
+    if 700 <= rt <= 799:            # Bus Service (suburban, express, etc.)
+        return 3
+    if 800 <= rt <= 899:            # Trolley bus — treated as bus
+        return 3
+    if 900 <= rt <= 999:            # Light Rail / Tram
+        return 0
+    if 1000 <= rt <= 1099:          # Water transport / ferry
+        return 4
+    if 1100 <= rt <= 1199:          # Air service — ignore (no column)
+        return -1
+    return -1                       # unknown → dropped
 
 _ROUTE_TYPE_LABEL: dict[int, str] = {
     0: "tram", 1: "metro/rail", 2: "rail", 3: "bus", 4: "ferry",
@@ -263,6 +294,8 @@ def _stops_from_standard(outer: zipfile.ZipFile) -> pd.DataFrame:
     # Left join — stops with no route_type get -1 (unknown), counted separately
     merged = stops.merge(stop_modes, on="stop_id", how="left")
     merged["route_type"] = pd.to_numeric(merged["route_type"], errors="coerce").fillna(-1).astype(int)
+    # Normalise extended GTFS route types (e.g. TfNSW uses 700, 712, 106, etc.)
+    merged["route_type"] = merged["route_type"].apply(_normalise_route_type)
     return merged
 
 
