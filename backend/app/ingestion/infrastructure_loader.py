@@ -415,8 +415,9 @@ def _find_sa2s_for_project(
     results = [(primary_code, 1.0)]
 
     # --- 2. Adjacent SA2s (share a boundary) ---
-    # Buffer by ~110 m to bridge simplified-geometry slivers
-    buffered = primary_geom.buffer(0.001)
+    # Buffer by ~330 m to bridge simplified-geometry slivers and narrow water gaps
+    # (e.g. coastal spit SA2s separated from mainland neighbours by <300m of water)
+    buffered = primary_geom.buffer(0.003)
     neighbours = sa2_gdf[
         (sa2_gdf["sa2_code"] != primary_code) &
         sa2_gdf.geometry.intersects(buffered)

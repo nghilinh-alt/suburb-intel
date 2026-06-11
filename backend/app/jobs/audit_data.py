@@ -102,7 +102,6 @@ def _check_zero_transit(db: Session, state_filter: str | None, pop_threshold: in
           AND (m.pt_stop_tram  IS NULL OR m.pt_stop_tram  = 0)
           AND (m.pt_stop_bus   IS NULL OR m.pt_stop_bus   = 0)
           AND (m.pt_stop_ferry IS NULL OR m.pt_stop_ferry = 0)
-          AND r.state != 'NT'
           AND r.sa2_name NOT LIKE '%Migratory%'
           AND r.sa2_name NOT LIKE '%No usual address%'
     """
