@@ -17,3 +17,4 @@
 | **WA Planning Zones** (`sa2_zoning`) | Yearly or when WAPC scheme amendments accumulate | Re-run `python -m app.ingestion.wa_zoning` (fetches from SLIP public ArcGIS) |
 | **SA Planning Zones** (`sa2_zoning`) | Fortnightly updates available — refresh annually | Download new zip from `https://www.dptiapps.com.au/dataportal/PDCodeZones_geojson.zip` to `data/zoning/sa_zones_geojson.zip`, then `python -m app.ingestion.sa_zoning --zip ../data/zoning/sa_zones_geojson.zip` |
 | **TAS Planning Zones** (`sa2_zoning`) | Yearly or when LPS amendments accumulate | Re-run `python -m app.ingestion.tas_zoning` (fetches from LIST PlanningOnline MapServer/13, max 1000 features/page) |
+| **ACT Planning Zones** (`sa2_zoning`) | Yearly or when Territory Plan variations accumulate | Re-run `python -m app.ingestion.act_zoning` (fetches from ACTGOV ArcGIS Online ACTGOV_TP_LAND_USE_ZONE FeatureServer/1) |
