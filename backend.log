@@ -1,0 +1,31 @@
+INFO:     Will watch for changes in these directories: ['C:\\Users\\nghil\\Projects\\Hermes\\suburb-intel\\backend']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [23432] using WatchFiles
+INFO:     Started server process [27324]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:51737 - "GET /api/rankings?score_type=investment_score&limit=5 HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:51738 - "GET /api/rankings/?score_type=investment_score&limit=5 HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:51739 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51740 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51742 - "GET /rankings?score_type=investment_score&limit=5 HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:51742 - "GET /rankings/?score_type=investment_score&limit=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51743 - "GET /rankings?score_type=investment_score&limit=200 HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:51743 - "GET /rankings/?score_type=investment_score&limit=200 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51745 - "GET /suburb-group/algester-qld HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59313 - "GET /suburb-group/algester-qld HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59315 - "GET /suburb-group/algester-qld HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61648 - "GET /rankings?score_type=investment_score&limit=30 HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:61649 - "GET /rankings?score_type=investment_score&limit=30 HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:61952 - "GET /rankings/?score_type=investment_score&limit=30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64169 - "GET /rankings/?score_type=investment_score&limit=30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64169 - "GET /rankings/?score_type=investment_score&limit=30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64172 - "GET /rankings?limit=3 HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:64173 - "GET /rankings/?limit=3 HTTP/1.1" 422 Unprocessable Entity
+INFO:     127.0.0.1:55154 - "GET /rankings?score_type=investment_score&limit=30 HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:55155 - "GET /rankings?score_type=investment_score&limit=30 HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:53885 - "GET /rankings/?score_type=investment_score&limit=30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62845 - "GET /rankings/?score_type=investment_score&limit=30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62845 - "GET /rankings/?score_type=investment_score&limit=30 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59451 - "GET /rankings?limit=5 HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:53804 - "GET /rankings/?limit=5 HTTP/1.1" 200 OK
