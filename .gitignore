@@ -19,6 +19,13 @@ data/vic_sample/
 # GTFS feeds — large downloads, never commit
 data/gtfs/
 
+# Overture Maps places parquet + ABS building approvals zips — large downloads, never commit
+data/overture/
+data/building_approvals/
+
+# Claude Code machine-local permission cache — not shareable project config
+.claude/settings.local.json
+
 # SQLite dev database — local only
 backend/*.db
 
