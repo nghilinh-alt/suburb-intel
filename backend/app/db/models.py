@@ -25,6 +25,8 @@ class SA2Region(Base):
     # Simplified polygon as GeoJSON text.
     # SQLite: stored as TEXT.  PostgreSQL migration: ALTER COLUMN → GEOMETRY(MultiPolygon, 4326) + PostGIS index.
     geometry_geojson = Column(Text, nullable=True, comment="Simplified GeoJSON polygon (WGS84). Migrate to PostGIS GEOMETRY on PostgreSQL.")
+    distance_to_cbd_km = Column(Float, nullable=True, comment="Haversine distance from SA2 centroid to its state capital's CBD")
+    adjacent_sa2_codes = Column(JSON, nullable=True, comment="SA2 codes sharing a border, precomputed once via shapely .intersects() — avoids per-request geometry ops")
 
     __table_args__ = (Index("ix_sa2_regions_name", "sa2_name"),)
 
@@ -179,6 +181,106 @@ class SuburbScore(Base):
     updated_at = Column(DateTime, nullable=True)
 
     __table_args__ = (Index("ix_suburb_scores_investment_desc", "investment_score"),)
+
+
+class PropertySale(Base):
+    """Individual sold-property records (bedrooms/price/date) tied to an SA2.
+
+    Schema in place ahead of the PropRadar ingestion loader (gated on
+    PROPRADAR_API_KEY, not yet configured) — see docs/nl_search_build_brief.md
+    Phase 2. Table is empty until that loader runs; the suburb report endpoint
+    already queries it so recent sales appear automatically once populated.
+    """
+
+    __tablename__ = "property_sales"
+
+    id = Column(Text, primary_key=True, comment="e.g. propradar property_id + sold date hash")
+    sa2_code = Column(Text, ForeignKey("sa2_regions.sa2_code"), nullable=False)
+    address = Column(Text, nullable=True)
+    suburb_name = Column(Text, nullable=True)
+    state = Column(Text, nullable=True)
+    postcode = Column(Text, nullable=True)
+    bedrooms = Column(Integer, nullable=True)
+    bathrooms = Column(Integer, nullable=True)
+    property_type = Column(Text, nullable=True, comment="house | unit | townhouse")
+    land_size_sqm = Column(Integer, nullable=True, comment="Land size in sqm, if the source provides it")
+    sold_price = Column(Integer, nullable=True)
+    sold_date = Column(Text, nullable=True, comment="ISO date string")
+    source = Column(Text, nullable=False, default="propradar")
+    fetched_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_property_sales_sa2_beds_price_date", "sa2_code", "bedrooms", "sold_price", "sold_date"),
+    )
+
+
+class LocalSchool(Base):
+    """School locations (name + type + coordinates) from Overture Maps places.
+
+    No ratings of its own — used for early-childhood/vocational/tertiary
+    entries ACARA doesn't cover. K-12 schools with a real rating are shown
+    via SchoolRating instead (see school_service.py for how the two merge
+    without duplicating entries).
+    """
+
+    __tablename__ = "local_schools"
+
+    id = Column(Text, primary_key=True, comment="Hash of name+lat+lon")
+    name = Column(Text, nullable=False)
+    category = Column(Text, nullable=True, comment="Raw Overture category, e.g. elementary_school")
+    level = Column(Text, nullable=True, comment="Friendly label, e.g. Primary School")
+    lat = Column(Float, nullable=False)
+    lon = Column(Float, nullable=False)
+    sa2_code = Column(Text, ForeignKey("sa2_regions.sa2_code"), nullable=False, comment="Containing SA2")
+
+    __table_args__ = (Index("ix_local_schools_sa2", "sa2_code"),)
+
+
+class SchoolRating(Base):
+    """Per-school ICSEA rating + sector, from ACARA's School Profile file.
+
+    Mapped to SA2 via postcode (same dominant-postcode-to-SA2 lookup as
+    school_icsea_loader.py's aggregate) — coarser than LocalSchool's
+    point-in-polygon match, but ACARA's file only gives a postcode, not
+    coordinates.
+    """
+
+    __tablename__ = "school_ratings"
+
+    id = Column(Text, primary_key=True, comment="ACARA 'School AGE ID'")
+    name = Column(Text, nullable=False)
+    suburb = Column(Text, nullable=True, comment="ACARA's own suburb text, not necessarily the SA2 name")
+    state = Column(Text, nullable=True)
+    sector = Column(Text, nullable=True, comment="Catholic | Independent | Government")
+    is_public = Column(Integer, nullable=True, comment="1 if Government sector, 0 if Catholic/Independent (SQLite has no bool)")
+    school_type = Column(Text, nullable=True, comment="Primary | Secondary | Combined | Special")
+    icsea = Column(Float, nullable=True)
+    icsea_percentile = Column(Float, nullable=True, comment="ACARA's own percentile (national, 0-99)")
+    total_enrolments = Column(Integer, nullable=True)
+    sa2_code = Column(Text, ForeignKey("sa2_regions.sa2_code"), nullable=True, comment="Via postcode->SA2 lookup; null if postcode unmatched")
+
+    __table_args__ = (Index("ix_school_ratings_sa2", "sa2_code"),)
+
+
+class PointOfInterest(Base):
+    """Named points of interest beyond the counted amenity categories —
+    hospitals, shopping centres, stadiums/arenas, and other attractions,
+    from Overture Maps places. Point-in-polygon matched to SA2, same as
+    LocalSchool.
+    """
+
+    __tablename__ = "points_of_interest"
+
+    id = Column(Text, primary_key=True, comment="Hash of name+lat+lon")
+    name = Column(Text, nullable=False)
+    category = Column(Text, nullable=True, comment="Raw Overture category, e.g. football_stadium")
+    group_label = Column(Text, nullable=True, comment="Friendly grouping, e.g. Hospital, Shopping Centre, Stadium & Arena, Attraction")
+    is_public_hospital = Column(Integer, nullable=True, comment="Best-effort name heuristic for hospitals only (1=public, 0=private, null otherwise) — not authoritative, see loader docstring")
+    lat = Column(Float, nullable=False)
+    lon = Column(Float, nullable=False)
+    sa2_code = Column(Text, ForeignKey("sa2_regions.sa2_code"), nullable=False, comment="Containing SA2")
+
+    __table_args__ = (Index("ix_points_of_interest_sa2", "sa2_code"),)
 
 
 class AmenityData(Base):

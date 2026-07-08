@@ -1,9 +1,16 @@
-"""Suburb investment-report endpoint."""
+"""Suburb investment-report endpoint.
+
+Returns raw, section-grouped data rather than the 0-100 composite scores
+(investment/demographic/economic/housing/resilience/gov scores are still
+computed internally to drive `insight`/`tags`/`risk_flags` text, but the
+numbers themselves are not part of the response — see each section below
+for the underlying metrics a reader would actually want per topic).
+"""
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -13,17 +20,39 @@ from app.core.gov_score import analyze_risk_flags, generate_insight
 from app.core.scoring import calculate_investment_score
 from app.db.models import (
     ABSCEntensMetrics,
+    InfrastructureProject,
+    PropertySale,
+    SA2ProjectLink,
     SA2Region,
 )
 from app.db.session import get_db
+from app.services.property_market_service import (
+    fetch_house_type_breakdown,
+    fetch_land_size_breakdown,
+    fetch_price_history,
+)
+from app.services.regional_comparison_service import fetch_regional_comparison
+from app.services.school_rating_service import fetch_school_percentile
+from app.services.points_of_interest_service import fetch_points_of_interest
+from app.services.school_service import fetch_schools
 from app.services.scoring_service import build_features, fetch_linked_projects
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Suburbs with median income at or above this number get a maxed-out income sub-score.
-# (Until we have proper percentile scoring, this is the cap.)
-_INCOME_INDEX_CEILING = 85_000.0
+_CUISINE_COLUMNS = {
+    "chinese": "osm_rest_chinese",
+    "indian": "osm_rest_indian",
+    "thai": "osm_rest_thai",
+    "italian": "osm_rest_italian",
+    "japanese": "osm_rest_japanese",
+    "vietnamese": "osm_rest_vietnamese",
+    "korean": "osm_rest_korean",
+    "greek": "osm_rest_greek",
+    "mexican": "osm_rest_mexican",
+    "middle_eastern": "osm_rest_middle_eastern",
+    "seafood": "osm_rest_seafood",
+}
 
 
 @router.get("/{sa2_code}")
@@ -31,11 +60,8 @@ async def suburb_report(
     sa2_code: str,
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    """Return investment-score report for an SA2 region."""
+    """Return a section-grouped investment report for an SA2 region."""
     try:
-        # Pull region metadata + census metrics in one round-trip so the
-        # response carries sa2_name and state (which live on SA2Region, not
-        # on ABSCEntensMetrics).
         stmt = (
             select(SA2Region, ABSCEntensMetrics)
             .join(
@@ -52,28 +78,116 @@ async def suburb_report(
                 status_code=404,
                 detail=f"SA2 region '{sa2_code}' not found. Use /search to find valid codes.",
             )
-        region, census_metrics = row
+        region, m = row
 
         gov_projects = await fetch_linked_projects(db, sa2_code)
-        features = build_features(census_metrics, gov_projects)
+        features = build_features(m, gov_projects)
         scores = calculate_investment_score(features)
 
-        census_dict = _census_to_dict(census_metrics)
+        census_dict = _census_to_dict(m)
         risk_flags = analyze_risk_flags(gov_projects, census_dict)
         insight = generate_insight(scores, census_dict, gov_projects)
+
+        projects = await _fetch_projects_full(db, sa2_code)
+        recent_sales = await _fetch_recent_sales(db, sa2_code)
+        price_history = await fetch_price_history(db, sa2_code)
+        house_type_breakdown = await fetch_house_type_breakdown(db, sa2_code)
+        land_size_breakdown = await fetch_land_size_breakdown(db, sa2_code)
+        regional_comparison = await fetch_regional_comparison(db, sa2_code)
+        schools = await fetch_schools(db, sa2_code)
+        school_percentile = await fetch_school_percentile(db, sa2_code)
+        points_of_interest = await fetch_points_of_interest(db, sa2_code)
 
         return {
             "sa2_code": sa2_code,
             "sa2_name": region.sa2_name,
             "state": region.state,
-            "scores": scores,
+            "census_year": 2021,
             "insight": insight,
             "risk_flags": risk_flags,
             "tags": _generate_tags(scores),
-            "census_year": 2021,
-            "population": census_metrics.population,
-            "median_income": census_metrics.median_income,
-            "median_age": census_metrics.median_age,
+            "regional_comparison": regional_comparison,
+            "location": {
+                "distance_to_cbd_km": region.distance_to_cbd_km,
+            },
+            "property_market": {
+                "domain_median_house_price": m.domain_median_house_price,
+                "domain_median_unit_price": m.domain_median_unit_price,
+                "domain_days_on_market": m.domain_days_on_market,
+                "domain_clearance_rate": m.domain_clearance_rate,
+                "building_approvals_1yr": m.building_approvals_1yr,
+                "recent_sales": recent_sales,
+                "recent_sales_available": len(recent_sales) > 0,
+                "price_history": price_history,
+                "land_size_breakdown": land_size_breakdown,
+            },
+            "investment_outlook": {
+                "pop_growth_5yr": m.pop_growth_5yr,
+                "pop_proj_2026": m.pop_proj_2026,
+                "pop_proj_2031": m.pop_proj_2031,
+                "pop_growth_proj_pct": m.pop_growth_proj_pct,
+                "building_approvals_1yr": m.building_approvals_1yr,
+                "distance_to_cbd_km": region.distance_to_cbd_km,
+            },
+            "demographics": {
+                "population": m.population,
+                "median_age": m.median_age,
+                "avg_household_size": m.avg_household_size,
+                "families_with_children_pct": m.families_with_children_pct,
+                "overseas_born_pct": m.overseas_born_pct,
+                "moved_in_1yr_pct": m.moved_in_1yr_pct,
+                "moved_in_5yr_pct": m.moved_in_5yr_pct,
+                "uni_degree_pct": m.uni_degree_pct,
+                "professionals_managers_pct": m.professionals_managers_pct,
+            },
+            "economy": {
+                "median_income": m.median_income,
+                "unemployment_pct": m.unemployment_pct,
+            },
+            "housing": {
+                "renters_pct": m.renters_pct,
+                "owners_pct": m.owners_pct,
+                "median_rent_weekly": m.median_rent_weekly,
+                "median_mortgage_monthly": m.median_mortgage_monthly,
+                "high_rent_stress_pct": m.high_rent_stress_pct,
+                "high_mortgage_stress_pct": m.high_mortgage_stress_pct,
+                "separate_house_pct": m.separate_house_pct,
+                "flat_apartment_pct": m.flat_apartment_pct,
+                "one_bedroom_pct": m.one_bedroom_pct,
+                "social_housing_pct": m.social_housing_pct,
+                "by_house_type": house_type_breakdown,
+            },
+            "community": {
+                "seifa_irsd_score": m.seifa_irsd_score,
+                "seifa_irsd_decile": m.seifa_irsd_decile,
+                "seifa_irsad_score": m.seifa_irsad_score,
+                "seifa_irsad_decile": m.seifa_irsad_decile,
+                "seifa_ier_decile": m.seifa_ier_decile,
+                "seifa_ieo_decile": m.seifa_ieo_decile,
+            },
+            "government_investment": {
+                "projects": projects,
+            },
+            "schools": {
+                "avg_school_icsea": m.avg_school_icsea,
+                "num_schools": m.num_schools,
+                "local": schools["local"],
+                "nearby": schools["nearby"],
+                "state_percentile": school_percentile,
+            },
+            "amenities": _build_amenities(m),
+            "points_of_interest": points_of_interest,
+            "transport": {
+                "pt_stop_train": m.pt_stop_train,
+                "pt_stop_tram": m.pt_stop_tram,
+                "pt_stop_bus": m.pt_stop_bus,
+                "pt_stop_ferry": m.pt_stop_ferry,
+                "car_commute_pct": m.car_commute_pct,
+                "pt_commute_pct": m.pt_commute_pct,
+                "work_from_home_pct": m.work_from_home_pct,
+                "zero_car_dwellings_pct": m.zero_car_dwellings_pct,
+                "distance_to_cbd_km": region.distance_to_cbd_km,
+            },
         }
     except HTTPException:
         raise
@@ -120,3 +234,72 @@ def _generate_tags(scores: Dict[str, Any]) -> List[str]:
         tags.append("Government-Supported")
 
     return tags
+
+
+def _build_amenities(m: ABSCEntensMetrics) -> Dict[str, Any]:
+    cuisines = {
+        label: getattr(m, col)
+        for label, col in _CUISINE_COLUMNS.items()
+        if getattr(m, col)
+    }
+    return {
+        "cafes": m.osm_cafes,
+        "bakeries": m.osm_bakeries,
+        "restaurants": m.osm_restaurants,
+        "fast_food": m.osm_fast_food,
+        "supermarkets": m.osm_supermarkets,
+        "parks": m.osm_parks,
+        "gyms": m.osm_gyms,
+        "hospitals": m.osm_hospitals,
+        "pharmacies": m.osm_pharmacies,
+        "shopping_centres": m.osm_shopping_centres,
+        "cuisines": cuisines,
+    }
+
+
+async def _fetch_projects_full(db: AsyncSession, sa2_code: str) -> List[Dict[str, Any]]:
+    """Nearby infrastructure projects with full display fields (not just the
+    scoring-oriented subset in scoring_service.fetch_linked_projects)."""
+    stmt = (
+        select(InfrastructureProject)
+        .join(SA2ProjectLink, SA2ProjectLink.project_id == InfrastructureProject.project_id)
+        .where(SA2ProjectLink.sa2_code == sa2_code)
+        .order_by(InfrastructureProject.value_aud.desc().nulls_last())
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        {
+            "name": p.name,
+            "type": p.type,
+            "status": p.status,
+            "value_aud": p.value_aud,
+            "timing": p.timing,
+            "expected_start": p.expected_start,
+            "expected_end": p.expected_end,
+        }
+        for p in rows
+    ]
+
+
+async def _fetch_recent_sales(db: AsyncSession, sa2_code: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """Recent PropRadar-sourced sold listings for this SA2. Empty today (no
+    PROPRADAR_API_KEY configured yet) — populates automatically once Phase 2's
+    ingestion loader runs, no shape change needed."""
+    stmt = (
+        select(PropertySale)
+        .where(PropertySale.sa2_code == sa2_code)
+        .order_by(PropertySale.sold_date.desc().nulls_last())
+        .limit(limit)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        {
+            "address": s.address,
+            "bedrooms": s.bedrooms,
+            "bathrooms": s.bathrooms,
+            "property_type": s.property_type,
+            "sold_price": s.sold_price,
+            "sold_date": s.sold_date,
+        }
+        for s in rows
+    ]

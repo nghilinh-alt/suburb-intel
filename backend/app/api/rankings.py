@@ -39,7 +39,7 @@ async def get_rankings(
 
     order_col = getattr(SuburbScore, score_type)
     stmt = (
-        select(SuburbScore, SA2Region.sa2_name, SA2Region.state)
+        select(SuburbScore, SA2Region.sa2_name, SA2Region.state, SA2Region.distance_to_cbd_km)
         .join(SA2Region, SA2Region.sa2_code == SuburbScore.sa2_code)
         .order_by(order_col.desc().nulls_last())
         .limit(limit)
@@ -55,8 +55,9 @@ async def get_rankings(
                 "sa2_code": score.sa2_code,
                 "sa2_name": name,
                 "state": state,
+                "distance_to_cbd_km": distance_to_cbd_km,
                 **{c: getattr(score, c) for c in _VALID_SCORE_TYPES},
             }
-            for i, (score, name, state) in enumerate(rows)
+            for i, (score, name, state, distance_to_cbd_km) in enumerate(rows)
         ],
     }

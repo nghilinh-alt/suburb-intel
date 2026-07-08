@@ -104,6 +104,7 @@ async def _get_exact_sa2(sa2_code: str, db: AsyncSession) -> Dict[str, Any]:
         "population": metrics.population if metrics else None,
         "median_income": metrics.median_income if metrics else None,
         "median_age": metrics.median_age if metrics else None,
+        "distance_to_cbd_km": region.distance_to_cbd_km,
     }
 
 
@@ -120,6 +121,7 @@ async def _get_suburbs_by_name(
             SA2Region.sa2_code,
             SA2Region.sa2_name,
             SA2Region.state,
+            SA2Region.distance_to_cbd_km,
             ABSCEntensMetrics.population,
             ABSCEntensMetrics.median_income,
             ABSCEntensMetrics.median_age,

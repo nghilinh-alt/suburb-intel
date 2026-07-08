@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from app.api import rankings, search, suburb
+from app.api import nl_search, rankings, search, suburb
 from app.api.osm_routes import router as osm_router
 
 app = FastAPI(
@@ -24,6 +24,7 @@ async def root() -> dict:
             {"method": "GET", "path": "/search", "description": "Search suburbs by name or SA2 code"},
             {"method": "GET", "path": "/rankings", "description": "Get top-ranked suburbs"},
             {"method": "GET", "path": "/search/{suburb_name}/osm-amenity-density", "description": "OSM amenity density"},
+            {"method": "POST", "path": "/search/ask", "description": "Plain-English suburb search"},
         ],
     }
 
@@ -39,6 +40,8 @@ app.include_router(search.router, prefix="/search", tags=["Search"])
 app.include_router(rankings.router, prefix="/rankings", tags=["Rankings"])
 # OSM routes already declare `{suburb_name}` in each path, mount them under /search.
 app.include_router(osm_router, prefix="/search", tags=["OSM Amenities"])
+# Adds POST /search/ask only — no collision with search.py's existing routes.
+app.include_router(nl_search.router, prefix="/search", tags=["NL Search"])
 
 
 # NOTE: RateLimitingMiddleware from `backend/middleware/rate_limiter.py` was previously
