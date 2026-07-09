@@ -1,15 +1,17 @@
 """Local + nearby school lookups for the suburb report's Schools section.
 
-Merges two sources without duplicating entries:
-  - SchoolRating (ACARA): every K-12 school, with sector (public/private)
-    and ACARA's own ICSEA percentile — this is the rated list.
-  - LocalSchool (Overture): only levels ACARA doesn't cover (early
-    childhood, university/college, vocational/TAFE) — these have no rating.
+Only shows ACARA-rated K-12 schools — sector (public/private) and ICSEA
+percentile both required, so unrated entries (Overture-only early
+childhood/university/vocational places, which never have a sector or
+percentile) don't appear here.
 
 "Nearby" means SA2s adjacent to this one (see `adjacent_sa2_codes`,
 precomputed once by school_locations_loader.py) — not literal distance, but
 a reasonable proxy for "surrounding suburbs" without expensive geometry ops
-on every request.
+on every request. Capped and sorted by percentile descending (best schools
+first) since — unlike points_of_interest_service.py's POIs — ICSEA
+percentile is a real, meaningful ranking signal to curate by, not just an
+arbitrary cap.
 """
 
 from __future__ import annotations
@@ -19,13 +21,10 @@ from typing import Any, Dict, List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import LocalSchool, SA2Region, SchoolRating
-
-# Overture's LocalSchool levels that ACARA's K-12 ratings already cover —
-# excluded from the Overture side to avoid showing the same school twice.
-_ACARA_COVERED_LEVELS = {"Primary School", "Middle School", "Secondary School", "School"}
+from app.db.models import SA2Region, SchoolRating
 
 _SECTOR_LABEL = {1: "Public", 0: "Private"}
+_MAX_NEARBY = 10
 
 
 async def fetch_schools(db: AsyncSession, sa2_code: str) -> Dict[str, List[Dict[str, Any]]]:
@@ -37,20 +36,24 @@ async def fetch_schools(db: AsyncSession, sa2_code: str) -> Dict[str, List[Dict[
     if not adjacent_codes:
         return {"local": local, "nearby": []}
 
-    nearby = await _fetch_for_sa2(db, adjacent_codes, with_suburb=True)
+    nearby = (await _fetch_for_sa2(db, adjacent_codes, with_suburb=True))[:_MAX_NEARBY]
     return {"local": local, "nearby": nearby}
 
 
 async def _fetch_for_sa2(
     db: AsyncSession, sa2_codes: List[str], *, with_suburb: bool = False
 ) -> List[Dict[str, Any]]:
-    rated_stmt = select(
+    stmt = select(
         SchoolRating.name,
         SchoolRating.school_type,
         SchoolRating.is_public,
         SchoolRating.icsea_percentile,
         SchoolRating.sa2_code,
-    ).where(SchoolRating.sa2_code.in_(sa2_codes))
+    ).where(
+        SchoolRating.sa2_code.in_(sa2_codes),
+        SchoolRating.is_public.isnot(None),
+        SchoolRating.icsea_percentile.isnot(None),
+    )
 
     suburb_by_sa2: Dict[str, str] = {}
     if with_suburb:
@@ -58,7 +61,7 @@ async def _fetch_for_sa2(
         suburb_by_sa2 = dict(rows)
 
     entries: List[Dict[str, Any]] = []
-    for name, school_type, is_public, icsea_percentile, row_sa2 in (await db.execute(rated_stmt)).all():
+    for name, school_type, is_public, icsea_percentile, row_sa2 in (await db.execute(stmt)).all():
         entry = {
             "name": name,
             "level": school_type,
@@ -69,15 +72,5 @@ async def _fetch_for_sa2(
             entry["suburb"] = suburb_by_sa2.get(row_sa2)
         entries.append(entry)
 
-    unrated_stmt = (
-        select(LocalSchool.name, LocalSchool.level, LocalSchool.sa2_code)
-        .where(LocalSchool.sa2_code.in_(sa2_codes), LocalSchool.level.notin_(_ACARA_COVERED_LEVELS))
-    )
-    for name, level, row_sa2 in (await db.execute(unrated_stmt)).all():
-        entry = {"name": name, "level": level, "sector": None, "icsea_percentile": None}
-        if with_suburb:
-            entry["suburb"] = suburb_by_sa2.get(row_sa2)
-        entries.append(entry)
-
-    entries.sort(key=lambda e: (e["level"] or "", e["name"]))
+    entries.sort(key=lambda e: e["icsea_percentile"], reverse=True)
     return entries

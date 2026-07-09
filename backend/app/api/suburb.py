@@ -27,14 +27,17 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.services.property_market_service import (
+    fetch_detailed_specs,
     fetch_house_type_breakdown,
     fetch_land_size_breakdown,
     fetch_price_history,
+    fetch_price_history_by_spec,
 )
 from app.services.regional_comparison_service import fetch_regional_comparison
 from app.services.school_rating_service import fetch_school_percentile
 from app.services.points_of_interest_service import fetch_points_of_interest
 from app.services.school_service import fetch_schools
+from app.services.suburb_market_stats_service import fetch_rental_market_history, fetch_suburb_market_stats
 from app.services.scoring_service import build_features, fetch_linked_projects
 
 logger = logging.getLogger(__name__)
@@ -91,8 +94,12 @@ async def suburb_report(
         projects = await _fetch_projects_full(db, sa2_code)
         recent_sales = await _fetch_recent_sales(db, sa2_code)
         price_history = await fetch_price_history(db, sa2_code)
+        price_history_by_spec = await fetch_price_history_by_spec(db, sa2_code)
         house_type_breakdown = await fetch_house_type_breakdown(db, sa2_code)
+        detailed_specs = await fetch_detailed_specs(db, sa2_code)
         land_size_breakdown = await fetch_land_size_breakdown(db, sa2_code)
+        market_stats = await fetch_suburb_market_stats(db, sa2_code)
+        rental_market = await fetch_rental_market_history(db, sa2_code)
         regional_comparison = await fetch_regional_comparison(db, sa2_code)
         schools = await fetch_schools(db, sa2_code)
         school_percentile = await fetch_school_percentile(db, sa2_code)
@@ -110,6 +117,8 @@ async def suburb_report(
             "location": {
                 "distance_to_cbd_km": region.distance_to_cbd_km,
             },
+            "market_stats": market_stats,
+            "rental_market": rental_market,
             "property_market": {
                 "domain_median_house_price": m.domain_median_house_price,
                 "domain_median_unit_price": m.domain_median_unit_price,
@@ -119,6 +128,8 @@ async def suburb_report(
                 "recent_sales": recent_sales,
                 "recent_sales_available": len(recent_sales) > 0,
                 "price_history": price_history,
+                "price_history_by_spec": price_history_by_spec,
+                "detailed_specs": detailed_specs,
                 "land_size_breakdown": land_size_breakdown,
             },
             "investment_outlook": {

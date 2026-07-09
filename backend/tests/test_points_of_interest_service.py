@@ -41,6 +41,41 @@ async def test_fetch_pois_splits_local_and_nearby_with_hospital_type():
 
 
 @pytest.mark.asyncio
+async def test_fetch_pois_dedupes_case_insensitive_same_name_same_group():
+    async with AsyncSessionLocal() as session:
+        session.add(SA2Region(sa2_code="71000004", sa2_name="Dupe Suburb", state="QLD"))
+        session.add(PointOfInterest(
+            id="d1", name="Westfield Dupe", category="shopping_center", group_label="Shopping Centre",
+            is_public_hospital=None, lat=-27.0, lon=153.0, sa2_code="71000004",
+        ))
+        session.add(PointOfInterest(
+            id="d2", name="westfield dupe", category="shopping_center", group_label="Shopping Centre",
+            is_public_hospital=None, lat=-27.0001, lon=153.0001, sa2_code="71000004",
+        ))
+        await session.commit()
+
+        result = await fetch_points_of_interest(session, "71000004")
+
+    assert len(result["local"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_pois_caps_each_group_at_max():
+    async with AsyncSessionLocal() as session:
+        session.add(SA2Region(sa2_code="71000005", sa2_name="Busy Suburb", state="QLD"))
+        for i in range(8):
+            session.add(PointOfInterest(
+                id=f"cap{i}", name=f"Museum {i}", category="museum", group_label="Attraction",
+                is_public_hospital=None, lat=-27.0, lon=153.0, sa2_code="71000005",
+            ))
+        await session.commit()
+
+        result = await fetch_points_of_interest(session, "71000005")
+
+    assert len(result["local"]) == 5
+
+
+@pytest.mark.asyncio
 async def test_fetch_pois_empty_when_none_nearby():
     async with AsyncSessionLocal() as session:
         session.add(SA2Region(sa2_code="71000003", sa2_name="Isolated", state="QLD"))

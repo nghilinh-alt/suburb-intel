@@ -184,12 +184,10 @@ class SuburbScore(Base):
 
 
 class PropertySale(Base):
-    """Individual sold-property records (bedrooms/price/date) tied to an SA2.
-
-    Schema in place ahead of the PropRadar ingestion loader (gated on
-    PROPRADAR_API_KEY, not yet configured) — see docs/nl_search_build_brief.md
-    Phase 2. Table is empty until that loader runs; the suburb report endpoint
-    already queries it so recent sales appear automatically once populated.
+    """Individual sold-property records (bedrooms/price/date) tied to an SA2,
+    from PropRadar's GET /v1/suburbs/{state}/{suburb}/sold. `fetched_at` backs
+    the loader's monthly freshness check (skip a SA2 already fetched this
+    calendar month) — see propradar_sold_loader.py.
     """
 
     __tablename__ = "property_sales"
@@ -202,8 +200,9 @@ class PropertySale(Base):
     postcode = Column(Text, nullable=True)
     bedrooms = Column(Integer, nullable=True)
     bathrooms = Column(Integer, nullable=True)
+    parking = Column(Integer, nullable=True)
     property_type = Column(Text, nullable=True, comment="house | unit | townhouse")
-    land_size_sqm = Column(Integer, nullable=True, comment="Land size in sqm, if the source provides it")
+    land_size_sqm = Column(Integer, nullable=True, comment="Land size in sqm — always null via PropRadar, that endpoint doesn't return it; kept for a future source")
     sold_price = Column(Integer, nullable=True)
     sold_date = Column(Text, nullable=True, comment="ISO date string")
     source = Column(Text, nullable=False, default="propradar")
@@ -211,6 +210,87 @@ class PropertySale(Base):
 
     __table_args__ = (
         Index("ix_property_sales_sa2_beds_price_date", "sa2_code", "bedrooms", "sold_price", "sold_date"),
+    )
+
+
+class SuburbMarketStats(Base):
+    """PropRadar's own pre-computed suburb-level market stats, from
+    GET /v1/suburbs/{state}/{suburb} — one row per real suburb (not per SA2;
+    a combined SA2 like "Rochedale - Burbank" gets one row each for
+    Rochedale and Burbank, same split as property_sales) PER CALENDAR MONTH
+    the loader ran — `id` embeds `period` so a monthly re-run inserts a new
+    snapshot row instead of overwriting the previous month's, letting the
+    Rental Market section chart month-over-month changes in rent/vacancy/
+    days-on-market. Query the max `period` per suburb for "current" values.
+
+    Cheap relative to per-listing ingestion: one API call per real suburb,
+    not per property. `pr_` prefix on demographic/location fields
+    distinguishes PropRadar's own figures from our ABS-census-derived ones
+    on ABSCEntensMetrics — different methodologies, kept separate rather
+    than merged/reconciled.
+
+    Fields PropRadar locks behind Pro/Growth+ plans (supply/demand, rent
+    trends, auction premium, market cycle, heat history) aren't in this
+    table — they were never in the response body at our "hobby" tier, not
+    silently null.
+    """
+
+    __tablename__ = "suburb_market_stats"
+
+    id = Column(Text, primary_key=True, comment="'{state}-{suburb_slug}-{YYYY-MM}', e.g. 'QLD-cleveland-2026-07'")
+    sa2_code = Column(Text, ForeignKey("sa2_regions.sa2_code"), nullable=False)
+    suburb_name = Column(Text, nullable=False)
+    state = Column(Text, nullable=False)
+    postcode = Column(Text, nullable=True)
+    period = Column(Text, nullable=False, comment="'YYYY-MM' calendar month this snapshot was fetched in")
+
+    median_house_price = Column(Integer, nullable=True)
+    median_unit_price = Column(Integer, nullable=True)
+    median_house_rent_weekly = Column(Integer, nullable=True)
+    median_unit_rent_weekly = Column(Integer, nullable=True)
+
+    growth_house_qtr_pct = Column(Float, nullable=True)
+    growth_house_1y_pct = Column(Float, nullable=True)
+    growth_house_3y_pct = Column(Float, nullable=True)
+    growth_house_5y_pct = Column(Float, nullable=True)
+    growth_house_10y_pct = Column(Float, nullable=True)
+    growth_unit_qtr_pct = Column(Float, nullable=True)
+    growth_unit_1y_pct = Column(Float, nullable=True)
+    growth_unit_3y_pct = Column(Float, nullable=True)
+    growth_unit_5y_pct = Column(Float, nullable=True)
+    growth_unit_10y_pct = Column(Float, nullable=True)
+
+    gross_yield_house_pct = Column(Float, nullable=True)
+    gross_yield_unit_pct = Column(Float, nullable=True)
+
+    days_on_market_house = Column(Integer, nullable=True)
+    days_on_market_unit = Column(Integer, nullable=True)
+    vacancy_rate_pct = Column(Float, nullable=True)
+    inventory_months_house = Column(Float, nullable=True)
+    inventory_months_unit = Column(Float, nullable=True)
+    stock_on_market_pct_house = Column(Float, nullable=True)
+    stock_on_market_pct_unit = Column(Float, nullable=True)
+    sold_vs_asking_pct = Column(Float, nullable=True, comment="Suburb-wide average; per-property version lives on PropertySale via a future enrichment pass")
+    heat_score_house = Column(Float, nullable=True)
+    heat_score_unit = Column(Float, nullable=True)
+    sales_12mo_house = Column(Integer, nullable=True)
+    sales_12mo_unit = Column(Integer, nullable=True)
+
+    pr_population = Column(Integer, nullable=True, comment="PropRadar's own figure — separate from ABSCEntensMetrics.population (different source/methodology)")
+    pr_median_age = Column(Float, nullable=True)
+    pr_median_household_income = Column(Integer, nullable=True)
+    pr_owner_occupied_pct = Column(Float, nullable=True)
+    pr_renter_pct = Column(Float, nullable=True)
+    pr_unemployment_rate_pct = Column(Float, nullable=True)
+    pr_socioeconomic_score = Column(Float, nullable=True)
+    pr_distance_to_cbd_km = Column(Float, nullable=True, comment="PropRadar's own estimate — separate from SA2Region.distance_to_cbd_km (our own haversine calc)")
+
+    as_of = Column(DateTime, nullable=True, comment="When PropRadar computed this snapshot")
+    fetched_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_suburb_market_stats_sa2", "sa2_code"),
+        Index("ix_suburb_market_stats_suburb_period", "sa2_code", "suburb_name", "period"),
     )
 
 

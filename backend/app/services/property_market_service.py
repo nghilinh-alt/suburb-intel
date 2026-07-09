@@ -53,38 +53,58 @@ async def fetch_price_history(db: AsyncSession, sa2_code: str) -> List[Dict[str,
     ]
 
 
+# PropRadar's real property_type values (verified against a live pilot pull
+# across 9 suburbs, 2026-07-08) are far more varied than the original 3-value
+# guess: house, apartment, unit, townhouse, villa, "duplex+semi detached",
+# residential+land, flat. Normalize the synonyms so "apartment"/"unit"/"flat"
+# share one bucket set instead of "unit" being the only one that got bucketed
+# and everything else falling into an ungrouped per-bedroom-count fallback.
+_TYPE_LABELS: dict[str, str] = {
+    "house": "House",
+    "unit": "Apartment",
+    "apartment": "Apartment",
+    "flat": "Apartment",
+    "townhouse": "Townhouse",
+    "villa": "Villa",
+    "duplex+semi detached": "Duplex/Semi-Detached",
+}
+
+
 def _house_type_label(property_type: str | None, bedrooms: int | None) -> str | None:
     """Bucket a listing into a human-readable house-type label.
 
     Bucket boundaries are a reasonable default (mirrors common real-estate
     listing categories) — adjust freely once real data shows what's useful.
+    Unrecognized types (e.g. "residential+land") fall back to a plain
+    "{bedrooms} Bed {Type}" label rather than being dropped.
     """
     if property_type is None or bedrooms is None:
         return None
-    pt = property_type.lower()
 
-    if pt == "unit":
+    type_label = _TYPE_LABELS.get(property_type.lower())
+    if type_label is None:
+        return f"{bedrooms} Bed {property_type.title()}"
+
+    if type_label == "Apartment":
         if bedrooms <= 1:
-            return "1 Bed Apartment"
+            return f"1 Bed {type_label}"
         if bedrooms == 2:
-            return "2 Bed Apartment"
-        return "3+ Bed Apartment"
+            return f"2 Bed {type_label}"
+        return f"3+ Bed {type_label}"
 
-    if pt == "townhouse":
-        if bedrooms <= 1:
-            return "1 Bed Townhouse"
-        if bedrooms <= 4:
-            return "2-4 Bed Townhouse"
-        return "5+ Bed Townhouse"
-
-    if pt == "house":
+    if type_label == "House":
         if bedrooms <= 2:
-            return "2 Bed House"
+            return f"2 Bed {type_label}"
         if bedrooms <= 5:
-            return "3-5 Bed House"
-        return "6+ Bed House"
+            return f"3-5 Bed {type_label}"
+        return f"6+ Bed {type_label}"
 
-    return f"{bedrooms} Bed {property_type.title()}"
+    # Townhouse / Villa / Duplex-Semi-Detached share one range shape
+    if bedrooms <= 1:
+        return f"1 Bed {type_label}"
+    if bedrooms <= 4:
+        return f"2-4 Bed {type_label}"
+    return f"5+ Bed {type_label}"
 
 
 async def fetch_house_type_breakdown(db: AsyncSession, sa2_code: str) -> List[Dict[str, Any]]:
@@ -110,6 +130,118 @@ async def fetch_house_type_breakdown(db: AsyncSession, sa2_code: str) -> List[Di
         for label, prices in buckets.items()
     ]
     results.sort(key=lambda r: r["sale_count"], reverse=True)
+    return results
+
+
+def _exact_spec_key(property_type: str | None, bedrooms: int | None, bathrooms: int | None, parking: int | None) -> tuple | None:
+    """Bucket a listing into its exact spec — a (type_label, bedrooms, bathrooms,
+    parking) key, e.g. ("House", 5, 3, 2) -> "5 Bed / 3 Bath / 2 Garage House".
+    Unlike `_house_type_label`'s coarse bedroom ranges, this is the precise
+    bed/bath/parking combo. Reuses the same type-name normalization
+    (apartment/unit/flat -> "Apartment", etc.) so the two views stay
+    consistent with each other.
+    """
+    if property_type is None or bedrooms is None or bathrooms is None:
+        return None
+    type_label = _TYPE_LABELS.get(property_type.lower(), property_type.title())
+    return (type_label, bedrooms, bathrooms, parking)
+
+
+def _exact_spec_label(spec_key: tuple) -> str:
+    type_label, bedrooms, bathrooms, parking = spec_key
+    spec = f"{bedrooms} Bed / {bathrooms} Bath"
+    if parking is not None:
+        spec += f" / {parking} Garage"
+    return f"{spec} {type_label}"
+
+
+def _exact_spec_sort_key(spec_key: tuple) -> tuple:
+    """Sort specs progressively — bedrooms, then bathrooms, then parking
+    (unknown parking sorts before any known count), then type name — e.g.
+    1 Bed/1 Bath, 1 Bed/2 Bath, 2 Bed/1 Bath, ... rather than by popularity."""
+    type_label, bedrooms, bathrooms, parking = spec_key
+    return (bedrooms, bathrooms, parking if parking is not None else -1, type_label)
+
+
+async def fetch_detailed_specs(db: AsyncSession, sa2_code: str) -> List[Dict[str, Any]]:
+    """Median sold price + count per EXACT bed/bath/parking/type combo (e.g.
+    "2 Bed / 1 Bath Apartment", "5 Bed / 3 Bath / 2 Garage House") — finer
+    grained than `fetch_house_type_breakdown`'s bedroom-range buckets.
+    Sorted progressively by bed/bath/parking rather than by popularity.
+    Derived entirely from data already ingested via propradar_sold — no
+    extra API calls."""
+    stmt = select(
+        PropertySale.property_type, PropertySale.bedrooms, PropertySale.bathrooms,
+        PropertySale.parking, PropertySale.sold_price,
+    ).where(
+        PropertySale.sa2_code == sa2_code,
+        PropertySale.property_type.isnot(None),
+        PropertySale.bedrooms.isnot(None),
+        PropertySale.bathrooms.isnot(None),
+        PropertySale.sold_price.isnot(None),
+    )
+    rows = (await db.execute(stmt)).all()
+
+    buckets: Dict[tuple, List[int]] = {}
+    for property_type, bedrooms, bathrooms, parking, sold_price in rows:
+        spec_key = _exact_spec_key(property_type, bedrooms, bathrooms, parking)
+        if spec_key is None:
+            continue
+        buckets.setdefault(spec_key, []).append(sold_price)
+
+    sorted_keys = sorted(buckets.keys(), key=_exact_spec_sort_key)
+    return [
+        {
+            "label": _exact_spec_label(spec_key),
+            "median_price": round(median(buckets[spec_key])),
+            "sale_count": len(buckets[spec_key]),
+        }
+        for spec_key in sorted_keys
+    ]
+
+
+async def fetch_price_history_by_spec(db: AsyncSession, sa2_code: str) -> List[Dict[str, Any]]:
+    """Monthly median sold price + sale count per EXACT bed/bath/parking/type
+    combo, oldest to newest, capped at 5 years — the per-spec equivalent of
+    `fetch_price_history`, since blending e.g. a 2 bed apartment with a 5 bed
+    house into one trend line hides more than it shows. Sorted progressively
+    by bed/bath/parking, same order as `fetch_detailed_specs`."""
+    stmt = select(
+        PropertySale.property_type, PropertySale.bedrooms, PropertySale.bathrooms,
+        PropertySale.parking, PropertySale.sold_price, PropertySale.sold_date,
+    ).where(
+        PropertySale.sa2_code == sa2_code,
+        PropertySale.property_type.isnot(None),
+        PropertySale.bedrooms.isnot(None),
+        PropertySale.bathrooms.isnot(None),
+        PropertySale.sold_price.isnot(None),
+        PropertySale.sold_date.isnot(None),
+    )
+    rows = (await db.execute(stmt)).all()
+
+    buckets: Dict[tuple, Dict[str, List[int]]] = {}
+    for property_type, bedrooms, bathrooms, parking, sold_price, sold_date in rows:
+        spec_key = _exact_spec_key(property_type, bedrooms, bathrooms, parking)
+        if spec_key is None:
+            continue
+        period = sold_date[:7]  # "YYYY-MM"
+        by_month = buckets.setdefault(spec_key, {})
+        by_month.setdefault(period, []).append(sold_price)
+
+    sorted_keys = sorted(buckets.keys(), key=_exact_spec_sort_key)
+    results = []
+    for spec_key in sorted_keys:
+        by_month = buckets[spec_key]
+        periods = sorted(by_month.keys())[-_MAX_HISTORY_MONTHS:]
+        history = [
+            {
+                "period": period,
+                "median_price": round(median(by_month[period])),
+                "sale_count": len(by_month[period]),
+            }
+            for period in periods
+        ]
+        results.append({"label": _exact_spec_label(spec_key), "history": history})
     return results
 
 

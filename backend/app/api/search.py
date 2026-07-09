@@ -18,6 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.data_sources import AustralianDataSources
 from app.db.models import ABSCEntensMetrics, SA2Region
 from app.db.session import get_db
+from app.services.suburb_filter_service import (
+    SuburbFilters,
+    list_available_states,
+    search_suburbs_filtered,
+)
 
 router = APIRouter()
 
@@ -153,6 +158,83 @@ async def _resolve_sa2_code(db: AsyncSession, suburb_name: str) -> str:
     if not matches:
         raise HTTPException(status_code=404, detail=f"Suburb '{suburb_name}' not found")
     return matches[0]["sa2_code"]
+
+
+@router.get("/filter")
+async def filter_suburbs(
+    states: Optional[str] = Query(None, description="Comma-separated state codes, e.g. QLD,NSW"),
+    max_distance_to_cbd_km: Optional[float] = Query(None),
+    min_median_house_price: Optional[float] = Query(None),
+    max_median_house_price: Optional[float] = Query(None),
+    min_median_unit_price: Optional[float] = Query(None),
+    max_median_unit_price: Optional[float] = Query(None),
+    min_population: Optional[int] = Query(None),
+    max_population: Optional[int] = Query(None),
+    min_pop_growth_5yr_pct: Optional[float] = Query(None),
+    min_median_income: Optional[int] = Query(None),
+    max_median_income: Optional[int] = Query(None),
+    min_median_rent_weekly: Optional[float] = Query(None),
+    max_median_rent_weekly: Optional[float] = Query(None),
+    min_owner_occupied_pct: Optional[float] = Query(None),
+    max_owner_occupied_pct: Optional[float] = Query(None),
+    max_social_housing_pct: Optional[float] = Query(None),
+    max_unemployment_pct: Optional[float] = Query(None),
+    min_seifa_irsd_decile: Optional[int] = Query(None),
+    min_avg_school_icsea: Optional[float] = Query(None),
+    max_days_on_market: Optional[float] = Query(None),
+    min_investment_score: Optional[float] = Query(None),
+    min_economic_score: Optional[float] = Query(None),
+    min_demographic_score: Optional[float] = Query(None),
+    min_gross_yield_house_pct: Optional[float] = Query(None),
+    max_vacancy_rate_pct: Optional[float] = Query(None),
+    sort_by: str = Query("population"),
+    sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Filter, sort, and paginate suburbs for the Search page's filter
+    sidebar. All filter params are optional and combine with AND."""
+    filters = SuburbFilters(
+        states=[s.strip().upper() for s in states.split(",") if s.strip()] if states else None,
+        max_distance_to_cbd_km=max_distance_to_cbd_km,
+        min_median_house_price=min_median_house_price,
+        max_median_house_price=max_median_house_price,
+        min_median_unit_price=min_median_unit_price,
+        max_median_unit_price=max_median_unit_price,
+        min_population=min_population,
+        max_population=max_population,
+        min_pop_growth_5yr_pct=min_pop_growth_5yr_pct,
+        min_median_income=min_median_income,
+        max_median_income=max_median_income,
+        min_median_rent_weekly=min_median_rent_weekly,
+        max_median_rent_weekly=max_median_rent_weekly,
+        min_owner_occupied_pct=min_owner_occupied_pct,
+        max_owner_occupied_pct=max_owner_occupied_pct,
+        max_social_housing_pct=max_social_housing_pct,
+        max_unemployment_pct=max_unemployment_pct,
+        min_seifa_irsd_decile=min_seifa_irsd_decile,
+        min_avg_school_icsea=min_avg_school_icsea,
+        max_days_on_market=max_days_on_market,
+        min_investment_score=min_investment_score,
+        min_economic_score=min_economic_score,
+        min_demographic_score=min_demographic_score,
+        min_gross_yield_house_pct=min_gross_yield_house_pct,
+        max_vacancy_rate_pct=max_vacancy_rate_pct,
+    )
+    page = await search_suburbs_filtered(db, filters, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=offset)
+    return {
+        "total_count": page.total_count,
+        "limit": limit,
+        "offset": offset,
+        "results": page.results,
+    }
+
+
+@router.get("/filter-options")
+async def get_filter_options(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """States present in the DB, for populating the state filter dropdown."""
+    return {"states": await list_available_states(db)}
 
 
 @router.get("/top")

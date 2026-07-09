@@ -2,11 +2,14 @@
 ICSEA percentile, one row per school (unlike school_icsea_loader.py, which
 only keeps the SA2-level enrolment-weighted average).
 
-Same postcode -> SA2 mapping as school_icsea_loader.py (dominant SA2 per
-postcode via ABS mesh-block allocation) — reused directly, not
-reimplemented. That loader's SA2-level aggregate stays useful on its own
-(state-percentile ranking of a whole suburb's schools); this one adds the
-individual-school detail for display.
+Same SA2-matching strategy as school_icsea_loader.py (suburb name first,
+postcode-dominant-SA2 as fallback for ambiguous/unmatched names — see that
+module's docstring for why postcode-only matching silently misattributes
+schools whose suburb isn't the postcode's dominant one, e.g. Algester's own
+schools were landing under neighbouring Parkinson - Drewvale) — reused
+directly, not reimplemented. That loader's SA2-level aggregate stays useful
+on its own (state-percentile ranking of a whole suburb's schools); this one
+adds the individual-school detail for display.
 
 Usage (CLI):
     cd backend
@@ -27,7 +30,11 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.db.models import SchoolRating
-from app.ingestion.school_icsea_loader import _build_postcode_sa2_lookup
+from app.ingestion.school_icsea_loader import (
+    _build_postcode_sa2_lookup,
+    build_suburb_sa2_lookup,
+    resolve_school_sa2,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +58,9 @@ class SchoolRatingLoadReport:
 def load_school_ratings(icsea_file: Path, mb_file: Path, poa_file: Path, db: Session) -> SchoolRatingLoadReport:
     report = SchoolRatingLoadReport()
 
+    logger.info("Building suburb name -> SA2 lookup from sa2_regions ...")
+    suburb_to_sa2 = build_suburb_sa2_lookup(db)
+
     logger.info("Building postcode -> SA2 lookup from mesh block files ...")
     postcode_to_sa2 = _build_postcode_sa2_lookup(mb_file, poa_file)
 
@@ -67,7 +77,10 @@ def load_school_ratings(icsea_file: Path, mb_file: Path, poa_file: Path, db: Ses
     report.schools_loaded = len(df)
 
     df["postcode_str"] = df["Postcode"].apply(lambda p: str(int(p)).zfill(4) if pd.notna(p) else None)
-    df["sa2_code"] = df["postcode_str"].map(postcode_to_sa2)
+    df["sa2_code"] = df.apply(
+        lambda row: resolve_school_sa2(row["Suburb"], row["State"], row["postcode_str"], suburb_to_sa2, postcode_to_sa2),
+        axis=1,
+    )
     report.schools_matched_sa2 = int(df["sa2_code"].notna().sum())
 
     def _clean_str(v):

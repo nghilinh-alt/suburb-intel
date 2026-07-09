@@ -11,8 +11,16 @@ PostgreSQL:      ALTER COLUMN geometry_geojson TYPE GEOMETRY(MultiPolygon,4326)
 Source file: SA2_2021_AUST_SHP_GDA2020.zip
 Download:    https://www.abs.gov.au/.../SA2_2021_AUST_SHP_GDA2020.zip (48 MB)
 
-Simplification tolerance: 0.001 degrees (~100 m) balances accuracy vs size.
-Resulting geometry_geojson strings are 1–30 KB each (avg ~8 KB).
+Simplification tolerance is ADAPTIVE, scaled to each polygon's own bounding-box
+diagonal (diagonal / 500), clamped to [~3 m, ~150 m]. A single fixed ~100 m
+tolerance (the original approach) is fine for huge sparse rural SA2s but
+devastating for small, compact urban suburbs: Algester's ~2 km-wide polygon
+collapsed to just 11 vertices at 100 m tolerance, clipping off a real strip
+of the suburb (a shopping/dining stretch with "Algester" literally in the
+business names) — meaning every downstream point-in-polygon spatial join
+(overture_amenity_loader.py, points_of_interest_loader.py) silently
+undercounted amenities there. Scaling tolerance to each polygon's own size
+keeps small suburbs sharp while still compacting huge rural SA2s.
 
 Usage (CLI):
     cd backend
@@ -34,9 +42,12 @@ from app.db.models import SA2Region
 
 logger = logging.getLogger(__name__)
 
-# Simplification tolerance in degrees (~100 m at Australian latitudes).
-# Increase (e.g. 0.005) for smaller files; decrease (e.g. 0.0005) for higher fidelity.
-_SIMPLIFY_TOLERANCE = 0.001
+# Adaptive simplification: tolerance = bounding-box diagonal / _TOLERANCE_DIVISOR,
+# clamped to [_MIN_TOLERANCE, _MAX_TOLERANCE] degrees. At Australian latitudes,
+# 1 degree ≈ 100 km, so _MIN_TOLERANCE ≈ 3 m and _MAX_TOLERANCE ≈ 150 m.
+_TOLERANCE_DIVISOR = 500.0
+_MIN_TOLERANCE = 0.00003
+_MAX_TOLERANCE = 0.0015
 
 
 @dataclass
@@ -109,11 +120,23 @@ def _load_shapefile(path: Path) -> gpd.GeoDataFrame:
     return gdf
 
 
+def _adaptive_tolerance(geom) -> float:
+    """Simplification tolerance scaled to this polygon's own bounding-box
+    diagonal, so small suburbs stay detailed while huge rural SA2s still
+    compact down reasonably."""
+    minx, miny, maxx, maxy = geom.bounds
+    diagonal = ((maxx - minx) ** 2 + (maxy - miny) ** 2) ** 0.5
+    tolerance = diagonal / _TOLERANCE_DIVISOR
+    return max(_MIN_TOLERANCE, min(_MAX_TOLERANCE, tolerance))
+
+
 def _simplify(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    """Simplify geometries and serialize to GeoJSON strings."""
+    """Simplify geometries (adaptive per-polygon tolerance) and serialize to
+    GeoJSON strings."""
     gdf = gdf.copy()
-    gdf["geometry"] = gdf["geometry"].simplify(
-        _SIMPLIFY_TOLERANCE, preserve_topology=True
+    gdf["geometry"] = gdf["geometry"].apply(
+        lambda geom: geom.simplify(_adaptive_tolerance(geom), preserve_topology=True)
+        if geom is not None else None
     )
     # Ensure all geometries are MultiPolygon for consistency
     gdf["geometry"] = gdf["geometry"].apply(_to_multipolygon)

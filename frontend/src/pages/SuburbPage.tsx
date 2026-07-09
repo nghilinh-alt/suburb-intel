@@ -23,6 +23,17 @@ interface LandSizeBand {
   sale_count: number
 }
 
+interface DetailedSpec {
+  label: string
+  median_price: number
+  sale_count: number
+}
+
+interface SpecPriceHistory {
+  label: string
+  history: PriceHistoryPoint[]
+}
+
 interface PropertyMarket {
   domain_median_house_price: number | null
   domain_median_unit_price: number | null
@@ -32,7 +43,49 @@ interface PropertyMarket {
   recent_sales: RecentSale[]
   recent_sales_available: boolean
   price_history: PriceHistoryPoint[]
+  price_history_by_spec: SpecPriceHistory[]
+  detailed_specs: DetailedSpec[]
   land_size_breakdown: LandSizeBand[]
+}
+
+interface RentalSnapshot {
+  period: string
+  median_house_rent_weekly: number | null
+  median_unit_rent_weekly: number | null
+  gross_yield_house_pct: number | null
+  gross_yield_unit_pct: number | null
+  days_on_market_house: number | null
+  days_on_market_unit: number | null
+  vacancy_rate_pct: number | null
+}
+
+interface RentalMarketEntry {
+  suburb_name: string
+  history: RentalSnapshot[]
+}
+
+interface SuburbMarketStat {
+  suburb_name: string
+  median_house_price: number | null
+  median_unit_price: number | null
+  median_house_rent_weekly: number | null
+  median_unit_rent_weekly: number | null
+  growth_house_1y_pct: number | null
+  growth_house_3y_pct: number | null
+  growth_house_5y_pct: number | null
+  growth_unit_1y_pct: number | null
+  growth_unit_3y_pct: number | null
+  growth_unit_5y_pct: number | null
+  gross_yield_house_pct: number | null
+  gross_yield_unit_pct: number | null
+  days_on_market_house: number | null
+  days_on_market_unit: number | null
+  vacancy_rate_pct: number | null
+  sold_vs_asking_pct: number | null
+  heat_score_house: number | null
+  heat_score_unit: number | null
+  sales_12mo_house: number | null
+  sales_12mo_unit: number | null
 }
 
 interface InvestmentOutlook {
@@ -189,6 +242,8 @@ interface SuburbReport {
   tags: string[]
   regional_comparison: RegionalComparison | null
   location: { distance_to_cbd_km: number | null }
+  market_stats: SuburbMarketStat[]
+  rental_market: RentalMarketEntry[]
   property_market: PropertyMarket
   investment_outlook: InvestmentOutlook
   demographics: Demographics
@@ -232,15 +287,19 @@ function fmtDays(v: number | null | undefined): string {
 function titleCase(s: string): string {
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
-function fmtOrdinal(n: number): string {
-  const mod100 = n % 100
-  if (mod100 >= 11 && mod100 <= 13) return `${n}th`
-  switch (n % 10) {
-    case 1: return `${n}st`
-    case 2: return `${n}nd`
-    case 3: return `${n}rd`
-    default: return `${n}th`
-  }
+function fmtTopPercent(percentile: number): string {
+  return `Top ${Math.max(Math.round(100 - percentile), 1)}%`
+}
+
+/** SA2 names often combine multiple gazetted suburbs (e.g. "Rochedale -
+ * Burbank", "Kedron - Gordon Park") since that's the ABS statistical area,
+ * not a real suburb boundary. For display, use just the first named suburb
+ * — the full official SA2 name stays visible in the subtitle line so
+ * nothing's lost, just de-emphasized. */
+function primarySuburbName(sa2Name: string | null | undefined): string {
+  if (!sa2Name) return 'This Suburb'
+  const withoutStateSuffix = sa2Name.replace(/\s*\((Vic\.|NSW|ACT|SA|WA|QLD|NT|Tas\.)\)\s*$/i, '')
+  return withoutStateSuffix.split(' - ')[0].trim()
 }
 
 // ---------------------------------------------------------------------------
@@ -330,6 +389,15 @@ function Stat({ label, value }: { label: string; value: string }) {
   )
 }
 
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: '11px', color: colors.textMuted }}>{label}</div>
+      <div style={{ fontSize: '14px', fontWeight: 600, color: colors.textPrimary }}>{value}</div>
+    </div>
+  )
+}
+
 function Pill({ children, tone = 'blue' }: { children: ReactNode; tone?: 'blue' | 'pink' | 'green' | 'amber' }) {
   const toneColors = {
     blue: { bg: colors.blueLight, fg: colors.blue },
@@ -407,7 +475,7 @@ function SchoolRow({ school, showSuburb = false }: { school: NearbySchoolEntry |
           <Pill tone={school.sector === 'Public' ? 'blue' : 'amber'}>{school.sector}</Pill>
         )}
         {school.icsea_percentile != null && (
-          <Pill tone="green">{fmtOrdinal(Math.round(school.icsea_percentile))} percentile</Pill>
+          <Pill tone="green">{fmtTopPercent(school.icsea_percentile)}</Pill>
         )}
       </div>
     </div>
@@ -511,6 +579,8 @@ function ReadyView({ data }: { data: SuburbReport }) {
     risk_flags,
     tags,
     regional_comparison,
+    market_stats,
+    rental_market,
     property_market,
     investment_outlook,
     demographics,
@@ -524,17 +594,25 @@ function ReadyView({ data }: { data: SuburbReport }) {
     transport,
   } = data
 
+  const [selectedSpecLabel, setSelectedSpecLabel] = useState<string | null>(null)
+  const activeSpecLabel =
+    selectedSpecLabel && property_market.price_history_by_spec.some((s) => s.label === selectedSpecLabel)
+      ? selectedSpecLabel
+      : property_market.price_history_by_spec[0]?.label ?? null
+  const activeSpecHistory = property_market.price_history_by_spec.find((s) => s.label === activeSpecLabel) ?? null
+
   return (
     <>
       <div style={{ marginBottom: '24px' }}>
         <h1 style={{ fontSize: '36px', margin: 0, color: colors.textPrimary }}>
-          {sa2_name ?? `Suburb ${sa2_code}`}
+          {sa2_name ? primarySuburbName(sa2_name) : `Suburb ${sa2_code}`}
           {state ? (
             <span style={{ color: colors.textMuted, fontSize: '20px', marginLeft: '12px' }}>{state}</span>
           ) : null}
         </h1>
         <p style={{ color: colors.textMuted, fontSize: '15px', marginTop: '6px' }}>
           SA2 Code: {sa2_code}
+          {sa2_name && sa2_name !== primarySuburbName(sa2_name) && <> · {sa2_name}</>}
           {transport.distance_to_cbd_km != null && <> · {fmtKm(transport.distance_to_cbd_km)} to CBD</>}
         </p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px' }}>
@@ -562,72 +640,113 @@ function ReadyView({ data }: { data: SuburbReport }) {
         )}
       </Card>
 
-      {regional_comparison && (
+      {market_stats.length > 0 && (
         <Section
-          title={`${sa2_name ?? 'This Suburb'} vs ${regional_comparison.region_label} Average`}
-          subtitle={`Compared against the ${regional_comparison.region_label} region average (ABS SA4 level)`}
-          dataVintage={`${census_year} Census`}
+          title="Market Snapshot"
+          subtitle="PropRadar's suburb-level stats — one card per real suburb when this SA2 combines more than one."
         >
-          <div style={{ display: 'grid', gap: '14px' }}>
-            {regional_comparison.metrics.map((m) => {
-              const fmt = (v: number) => (m.format === 'currency' ? fmtCurrency(v) : fmtPct(v))
-              const max = Math.max(m.suburb_value, m.region_average) * 1.15 || 1
-              return (
-                <div key={m.key}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      fontSize: '13px',
-                      marginBottom: '4px',
-                    }}
-                  >
-                    <span style={{ color: colors.textSecondary }}>{m.label}</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                    <span style={{ fontSize: '12px', color: colors.textMuted, width: '90px' }}>This Suburb</span>
-                    <div style={{ flex: 1, height: '8px', borderRadius: '999px', backgroundColor: colors.pageBg }}>
-                      <div
-                        style={{
-                          height: '100%',
-                          width: `${Math.min((m.suburb_value / max) * 100, 100)}%`,
-                          backgroundColor: colors.pink,
-                          borderRadius: '999px',
-                        }}
-                      />
+          <div style={{ display: 'grid', gap: '16px' }}>
+            {market_stats.map((s) => (
+              <div
+                key={s.suburb_name}
+                style={{
+                  padding: '16px',
+                  backgroundColor: colors.pageBg,
+                  borderRadius: '8px',
+                }}
+              >
+                <h4 style={{ fontSize: '14px', fontWeight: 600, color: colors.textPrimary, margin: '0 0 12px 0' }}>
+                  {s.suburb_name}
+                </h4>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '16px',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '11px', fontWeight: 600, color: colors.textMuted, marginBottom: '8px', textTransform: 'uppercase' }}>
+                      House
                     </div>
-                    <span style={{ fontSize: '13px', fontWeight: 600, color: colors.textPrimary, width: '80px', textAlign: 'right' }}>
-                      {fmt(m.suburb_value)}
-                    </span>
+                    <StatGrid>
+                      <Stat label="Median Price" value={fmtCurrency(s.median_house_price)} />
+                      <Stat label="Weekly Rent" value={s.median_house_rent_weekly != null ? `$${fmtNum(s.median_house_rent_weekly)}` : '—'} />
+                      <Stat label="Gross Yield" value={fmtPct(s.gross_yield_house_pct)} />
+                      <Stat label="Growth (1yr)" value={fmtPct(s.growth_house_1y_pct)} />
+                      <Stat label="Growth (3yr)" value={fmtPct(s.growth_house_3y_pct)} />
+                      <Stat label="Growth (5yr)" value={fmtPct(s.growth_house_5y_pct)} />
+                      <Stat label="Days on Market" value={fmtDays(s.days_on_market_house)} />
+                      <Stat label="Sales (12mo)" value={fmtNum(s.sales_12mo_house)} />
+                    </StatGrid>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '12px', color: colors.textMuted, width: '90px' }}>
-                      {regional_comparison.region_label} Avg
-                    </span>
-                    <div style={{ flex: 1, height: '8px', borderRadius: '999px', backgroundColor: colors.pageBg }}>
-                      <div
-                        style={{
-                          height: '100%',
-                          width: `${Math.min((m.region_average / max) * 100, 100)}%`,
-                          backgroundColor: colors.blue,
-                          borderRadius: '999px',
-                        }}
-                      />
+                  <div>
+                    <div style={{ fontSize: '11px', fontWeight: 600, color: colors.textMuted, marginBottom: '8px', textTransform: 'uppercase' }}>
+                      Unit
                     </div>
-                    <span style={{ fontSize: '13px', fontWeight: 600, color: colors.textPrimary, width: '80px', textAlign: 'right' }}>
-                      {fmt(m.region_average)}
-                    </span>
+                    <StatGrid>
+                      <Stat label="Median Price" value={fmtCurrency(s.median_unit_price)} />
+                      <Stat label="Weekly Rent" value={s.median_unit_rent_weekly != null ? `$${fmtNum(s.median_unit_rent_weekly)}` : '—'} />
+                      <Stat label="Gross Yield" value={fmtPct(s.gross_yield_unit_pct)} />
+                      <Stat label="Growth (1yr)" value={fmtPct(s.growth_unit_1y_pct)} />
+                      <Stat label="Growth (3yr)" value={fmtPct(s.growth_unit_3y_pct)} />
+                      <Stat label="Growth (5yr)" value={fmtPct(s.growth_unit_5y_pct)} />
+                      <Stat label="Days on Market" value={fmtDays(s.days_on_market_unit)} />
+                      <Stat label="Sales (12mo)" value={fmtNum(s.sales_12mo_unit)} />
+                    </StatGrid>
                   </div>
                 </div>
-              )
-            })}
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: '20px',
+                    marginTop: '14px',
+                    paddingTop: '14px',
+                    borderTop: `1px solid ${colors.border}`,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <MiniStat label="Vacancy Rate" value={fmtPct(s.vacancy_rate_pct)} />
+                  <MiniStat label="Sold vs Asking" value={fmtPct(s.sold_vs_asking_pct)} />
+                  <MiniStat label="Heat Score (House)" value={fmtNum(s.heat_score_house)} />
+                  <MiniStat label="Heat Score (Unit)" value={fmtNum(s.heat_score_unit)} />
+                </div>
+              </div>
+            ))}
           </div>
         </Section>
       )}
 
-      {/* Property Market — the headline section */}
+      <Section title="Investment Outlook" subtitle="Growth signals relevant to timing an investment decision">
+        <StatGrid>
+          <Stat label={`Population Growth (5yr, ${census_year} Census)`} value={fmtPct(investment_outlook.pop_growth_5yr)} />
+          <Stat label="Projected Population 2026" value={fmtNum(investment_outlook.pop_proj_2026)} />
+          <Stat label="Projected Population 2031" value={fmtNum(investment_outlook.pop_proj_2031)} />
+          <Stat label="Projected Growth to 2031" value={fmtPct(investment_outlook.pop_growth_proj_pct)} />
+          <Stat label="Dwellings Approved (1yr)" value={fmtNum(investment_outlook.building_approvals_1yr)} />
+          <Stat label="Distance to CBD" value={fmtKm(investment_outlook.distance_to_cbd_km)} />
+        </StatGrid>
+
+        {(() => {
+          const points = [
+            { label: 'Now', value: demographics.population },
+            { label: '2026', value: investment_outlook.pop_proj_2026 },
+            { label: '2031', value: investment_outlook.pop_proj_2031 },
+          ].filter((p): p is { label: string; value: number } => p.value != null)
+          return points.length >= 2 ? (
+            <div style={{ marginTop: '20px' }}>
+              <div style={{ fontSize: '12px', color: colors.textMuted, marginBottom: '4px' }}>
+                Population Trajectory
+              </div>
+              <TrendLine points={points} />
+            </div>
+          ) : null
+        })()}
+      </Section>
+
+      {/* Housing Market — the headline section */}
       <Section
-        title="Property Market"
+        title="Housing Market"
         subtitle="Median prices sourced from Domain; per-listing sold data below is ready for PropRadar once connected."
       >
         <StatGrid>
@@ -657,17 +776,64 @@ function ReadyView({ data }: { data: SuburbReport }) {
           </div>
         )}
 
-        {property_market.price_history.length >= 2 && (
+        {property_market.price_history_by_spec.length > 0 && (
+          <div style={{ marginTop: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '8px', marginBottom: '4px' }}>
+              <h4 style={{ fontSize: '14px', fontWeight: 600, color: colors.textPrimary, margin: 0 }}>
+                Median Sold Price Over Time
+              </h4>
+              <select
+                value={activeSpecLabel ?? ''}
+                onChange={(e) => setSelectedSpecLabel(e.target.value)}
+                style={{
+                  fontSize: '13px',
+                  padding: '4px 8px',
+                  borderRadius: '6px',
+                  border: `1px solid ${colors.border}`,
+                  backgroundColor: colors.cardBg,
+                  color: colors.textPrimary,
+                }}
+              >
+                {property_market.price_history_by_spec.map((s) => (
+                  <option key={s.label} value={s.label}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p style={{ fontSize: '12px', color: colors.textMuted, marginBottom: '10px' }}>
+              From PropRadar sold listings, monthly, for this exact bed/bath/garage/type combo — showing however
+              much history is available (up to 5 years).
+            </p>
+            {activeSpecHistory && activeSpecHistory.history.length >= 2 ? (
+              <TrendLine
+                points={activeSpecHistory.history.map((p) => ({ label: p.period, value: p.median_price }))}
+                width={600}
+              />
+            ) : (
+              <p style={{ color: colors.textMuted, fontSize: '13px' }}>
+                Not enough sold listings for this spec yet to chart a trend.
+              </p>
+            )}
+          </div>
+        )}
+
+        {property_market.detailed_specs.length > 0 && (
           <div style={{ marginTop: '24px' }}>
             <h4 style={{ fontSize: '14px', fontWeight: 600, color: colors.textPrimary, marginBottom: '4px' }}>
-              Median Sold Price Over Time
+              Median Price by Exact Spec
             </h4>
             <p style={{ fontSize: '12px', color: colors.textMuted, marginBottom: '10px' }}>
-              From PropRadar sold listings, monthly — showing however much history is available (up to 5 years).
+              Bed / bath / garage combinations with at least one sold listing, sorted progressively (1 Bed/1 Bath,
+              1 Bed/2 Bath, 2 Bed/1 Bath, ...).
             </p>
-            <TrendLine
-              points={property_market.price_history.map((p) => ({ label: p.period, value: p.median_price }))}
-              width={600}
+            <HorizontalBars
+              color={colors.blue}
+              items={property_market.detailed_specs.map((s) => ({
+                label: `${s.label} (${s.sale_count} sold)`,
+                value: s.median_price,
+                formattedValue: fmtCurrency(s.median_price),
+              }))}
             />
           </div>
         )}
@@ -732,32 +898,136 @@ function ReadyView({ data }: { data: SuburbReport }) {
         </div>
       </Section>
 
-      <Section title="Investment Outlook" subtitle="Growth signals relevant to timing an investment decision">
-        <StatGrid>
-          <Stat label={`Population Growth (5yr, ${census_year} Census)`} value={fmtPct(investment_outlook.pop_growth_5yr)} />
-          <Stat label="Projected Population 2026" value={fmtNum(investment_outlook.pop_proj_2026)} />
-          <Stat label="Projected Population 2031" value={fmtNum(investment_outlook.pop_proj_2031)} />
-          <Stat label="Projected Growth to 2031" value={fmtPct(investment_outlook.pop_growth_proj_pct)} />
-          <Stat label="Dwellings Approved (1yr)" value={fmtNum(investment_outlook.building_approvals_1yr)} />
-          <Stat label="Distance to CBD" value={fmtKm(investment_outlook.distance_to_cbd_km)} />
-        </StatGrid>
+      {rental_market.length > 0 && (
+        <Section
+          title="Rental Market"
+          subtitle="PropRadar's suburb-level rent, yield, days-on-market and vacancy. House/unit is the finest granularity available — PropRadar has no per-bed/bath rental-listings endpoint, only this suburb-wide snapshot. Trend charts fill in as more monthly snapshots accumulate."
+        >
+          <div style={{ display: 'grid', gap: '16px' }}>
+            {rental_market.map((r) => {
+              const latest = r.history[r.history.length - 1]
+              const rentPoints = r.history
+                .map((h) => ({ label: h.period, value: h.median_house_rent_weekly }))
+                .filter((p): p is { label: string; value: number } => p.value != null)
+              const vacancyPoints = r.history
+                .map((h) => ({ label: h.period, value: h.vacancy_rate_pct }))
+                .filter((p): p is { label: string; value: number } => p.value != null)
+              return (
+                <div
+                  key={r.suburb_name}
+                  style={{
+                    padding: '16px',
+                    backgroundColor: colors.pageBg,
+                    borderRadius: '8px',
+                  }}
+                >
+                  <h4 style={{ fontSize: '14px', fontWeight: 600, color: colors.textPrimary, margin: '0 0 12px 0' }}>
+                    {r.suburb_name}
+                  </h4>
+                  <StatGrid>
+                    <Stat label="House Weekly Rent" value={latest.median_house_rent_weekly != null ? `$${fmtNum(latest.median_house_rent_weekly)}` : '—'} />
+                    <Stat label="Unit Weekly Rent" value={latest.median_unit_rent_weekly != null ? `$${fmtNum(latest.median_unit_rent_weekly)}` : '—'} />
+                    <Stat label="House Gross Yield" value={fmtPct(latest.gross_yield_house_pct)} />
+                    <Stat label="Unit Gross Yield" value={fmtPct(latest.gross_yield_unit_pct)} />
+                    <Stat label="House Days on Market" value={fmtDays(latest.days_on_market_house)} />
+                    <Stat label="Unit Days on Market" value={fmtDays(latest.days_on_market_unit)} />
+                    <Stat label="Vacancy Rate" value={fmtPct(latest.vacancy_rate_pct)} />
+                  </StatGrid>
 
-        {(() => {
-          const points = [
-            { label: 'Now', value: demographics.population },
-            { label: '2026', value: investment_outlook.pop_proj_2026 },
-            { label: '2031', value: investment_outlook.pop_proj_2031 },
-          ].filter((p): p is { label: string; value: number } => p.value != null)
-          return points.length >= 2 ? (
-            <div style={{ marginTop: '20px' }}>
-              <div style={{ fontSize: '12px', color: colors.textMuted, marginBottom: '4px' }}>
-                Population Trajectory
-              </div>
-              <TrendLine points={points} />
-            </div>
-          ) : null
-        })()}
-      </Section>
+                  {rentPoints.length >= 2 || vacancyPoints.length >= 2 ? (
+                    <div style={{ marginTop: '20px', display: 'grid', gap: '20px' }}>
+                      {rentPoints.length >= 2 && (
+                        <div>
+                          <div style={{ fontSize: '12px', color: colors.textMuted, marginBottom: '4px' }}>
+                            House Weekly Rent Over Time
+                          </div>
+                          <TrendLine points={rentPoints} />
+                        </div>
+                      )}
+                      {vacancyPoints.length >= 2 && (
+                        <div>
+                          <div style={{ fontSize: '12px', color: colors.textMuted, marginBottom: '4px' }}>
+                            Vacancy Rate Over Time
+                          </div>
+                          <TrendLine points={vacancyPoints} />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p style={{ color: colors.textMuted, fontSize: '12px', marginTop: '12px' }}>
+                      Only one monthly snapshot so far — a month-over-month trend will appear once this data has
+                      been refreshed in a later calendar month.
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </Section>
+      )}
+
+      {regional_comparison && (
+        <Section
+          title={`${primarySuburbName(sa2_name)} vs ${regional_comparison.region_label} Average`}
+          subtitle={`Compared against the ${regional_comparison.region_label} region average (ABS SA4 level)`}
+          dataVintage={`${census_year} Census`}
+        >
+          <div style={{ display: 'grid', gap: '14px' }}>
+            {regional_comparison.metrics.map((m) => {
+              const fmt = (v: number) => (m.format === 'currency' ? fmtCurrency(v) : fmtPct(v))
+              const max = Math.max(m.suburb_value, m.region_average) * 1.15 || 1
+              return (
+                <div key={m.key}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: '13px',
+                      marginBottom: '4px',
+                    }}
+                  >
+                    <span style={{ color: colors.textSecondary }}>{m.label}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '12px', color: colors.textMuted, width: '90px' }}>This Suburb</span>
+                    <div style={{ flex: 1, height: '8px', borderRadius: '999px', backgroundColor: colors.pageBg }}>
+                      <div
+                        style={{
+                          height: '100%',
+                          width: `${Math.min((m.suburb_value / max) * 100, 100)}%`,
+                          backgroundColor: colors.pink,
+                          borderRadius: '999px',
+                        }}
+                      />
+                    </div>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: colors.textPrimary, width: '80px', textAlign: 'right' }}>
+                      {fmt(m.suburb_value)}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '12px', color: colors.textMuted, width: '90px' }}>
+                      {regional_comparison.region_label} Avg
+                    </span>
+                    <div style={{ flex: 1, height: '8px', borderRadius: '999px', backgroundColor: colors.pageBg }}>
+                      <div
+                        style={{
+                          height: '100%',
+                          width: `${Math.min((m.region_average / max) * 100, 100)}%`,
+                          backgroundColor: colors.blue,
+                          borderRadius: '999px',
+                        }}
+                      />
+                    </div>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: colors.textPrimary, width: '80px', textAlign: 'right' }}>
+                      {fmt(m.region_average)}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Section>
+      )}
 
       <Section title="Demographics" dataVintage={`${census_year} Census`}>
         <StatGrid>
@@ -925,9 +1195,9 @@ function ReadyView({ data }: { data: SuburbReport }) {
       <Section
         title="Schools"
         subtitle={
-          schools.state_percentile
-            ? `Ratings from ABS/ACARA School ICSEA data, ranked against all SA2s in ${schools.state_percentile.state}. Names/locations from Overture Maps.`
-            : "Names and locations from Overture Maps — no quality ratings yet (ACARA's School ICSEA data requires accepting commercial-use terms we haven't)."
+          schools.local.length > 0 || schools.nearby.length > 0
+            ? 'Public and private schools with an ABS/ACARA ICSEA ranking only. Surrounding suburbs capped to the top 10 by percentile.'
+            : "No rated schools found for this SA2 (ACARA's School ICSEA data requires accepting commercial-use terms we haven't)."
         }
       >
         {schools.state_percentile && (
@@ -949,7 +1219,7 @@ function ReadyView({ data }: { data: SuburbReport }) {
         <div style={{ display: 'grid', gap: '24px', marginTop: schools.avg_school_icsea != null ? '20px' : 0 }}>
           <div>
             <h4 style={{ fontSize: '14px', fontWeight: 600, color: colors.textPrimary, marginBottom: '10px' }}>
-              In {sa2_name ?? 'This Suburb'} ({schools.local.length})
+              In {primarySuburbName(sa2_name)} ({schools.local.length})
             </h4>
             {schools.local.length === 0 ? (
               <p style={{ color: colors.textMuted, fontSize: '14px' }}>No schools found in this suburb.</p>
@@ -1013,7 +1283,7 @@ function ReadyView({ data }: { data: SuburbReport }) {
 
       <Section
         title="Points of Interest"
-        subtitle="Hospitals, shopping centres, stadiums & arenas, and attractions from Overture Maps. Public/private hospital tagging is a best-effort name heuristic, not authoritative — see a hospital's own site to confirm."
+        subtitle="Hospitals, shopping centres, stadiums & arenas, and attractions from Overture Maps — up to 5 per category, not exhaustive. Public/private hospital tagging is a best-effort name heuristic, not authoritative — see a hospital's own site to confirm."
       >
         {points_of_interest.local.length === 0 && points_of_interest.nearby.length === 0 ? (
           <p style={{ color: colors.textMuted, fontSize: '14px' }}>No points of interest loaded for this SA2 yet.</p>
