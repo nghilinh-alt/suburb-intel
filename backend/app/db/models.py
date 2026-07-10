@@ -117,12 +117,6 @@ class ABSCEntensMetrics(Base):
     osm_rest_seafood       = Column(Integer, nullable=True, comment="Seafood restaurants")
     amenity_score    = Column(Float,   nullable=True, comment="Weighted liveability score 0–10")
 
-    # ── Property market (Domain API) ─────────────────────────────────────────
-    domain_median_house_price = Column(Float,   nullable=True, comment="Median house sold price $ — most recent 12-month period (Domain API)")
-    domain_median_unit_price  = Column(Float,   nullable=True, comment="Median unit/apartment sold price $ — most recent 12-month period (Domain API)")
-    domain_days_on_market     = Column(Float,   nullable=True, comment="Median days on market for houses (Domain API)")
-    domain_clearance_rate     = Column(Float,   nullable=True, comment="Auction clearance rate 0–1 for houses; null if < 10 auctions (Domain API)")
-
     # ── Building Approvals (ABS, FY2024-25) ──────────────────────────────────
     building_approvals_1yr = Column(Integer, nullable=True, comment="New residential dwellings approved in last full financial year (ABS SA2 building approvals)")
 

@@ -150,8 +150,8 @@ def load_suburb_market_stats(
     with httpx.Client(timeout=15.0) as client:
         headers = {"X-API-Key": api_key}
         for sa2_code, sa2_name, sa2_state in sa2_rows:
-            domain_state = _STATE_MAP.get(sa2_state)
-            if domain_state is None:
+            pr_state = _STATE_MAP.get(sa2_state)
+            if pr_state is None:
                 logger.warning("Unknown state %s for SA2 %s — skipping", sa2_state, sa2_code)
                 continue
 
@@ -159,14 +159,14 @@ def load_suburb_market_stats(
             for suburb_name in _split_suburb_parts(sa2_name):
                 report.suburbs_processed += 1
                 slug = suburb_name.lower().replace(" ", "-")
-                stats_id = f"{domain_state}-{slug}-{period}"
+                stats_id = f"{pr_state}-{slug}-{period}"
 
                 if not force and _already_fetched(db, stats_id):
                     logger.info("Skipping %s — already fetched this month", stats_id)
                     report.suburbs_skipped_fresh += 1
                     continue
 
-                url = f"{_BASE_URL}/v1/suburbs/{domain_state}/{slug}"
+                url = f"{_BASE_URL}/v1/suburbs/{pr_state}/{slug}"
                 try:
                     resp = client.get(url, headers=headers)
                     report.api_calls += 1
@@ -196,7 +196,7 @@ def load_suburb_market_stats(
                     continue
 
                 data = resp.json()
-                stats = _parse_stats(data, stats_id, sa2_code, domain_state, suburb_name, period)
+                stats = _parse_stats(data, stats_id, sa2_code, pr_state, suburb_name, period)
                 db.merge(stats)
                 db.commit()
                 report.suburbs_matched += 1

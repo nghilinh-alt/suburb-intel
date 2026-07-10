@@ -84,3 +84,29 @@ async def test_fetch_pois_empty_when_none_nearby():
         result = await fetch_points_of_interest(session, "71000003")
 
     assert result == {"local": [], "nearby": []}
+
+
+@pytest.mark.asyncio
+async def test_nearby_pois_get_distance_km_from_home_suburb_centroid():
+    # A small square polygon centred on (-27.0, 153.0).
+    home_geojson = (
+        '{"type": "Polygon", "coordinates": [[[152.99, -27.01], [153.01, -27.01], '
+        '[153.01, -26.99], [152.99, -26.99], [152.99, -27.01]]]}'
+    )
+    async with AsyncSessionLocal() as session:
+        session.add(SA2Region(
+            sa2_code="71000006", sa2_name="Home With Geometry", state="QLD",
+            adjacent_sa2_codes=["71000007"], geometry_geojson=home_geojson,
+        ))
+        session.add(SA2Region(sa2_code="71000007", sa2_name="Neighbour", state="QLD"))
+        # ~11.1km due south of the (-27.0, 153.0) centroid.
+        session.add(PointOfInterest(
+            id="dist1", name="Southern Museum", category="museum", group_label="Attraction",
+            is_public_hospital=None, lat=-27.1, lon=153.0, sa2_code="71000007",
+        ))
+        await session.commit()
+
+        result = await fetch_points_of_interest(session, "71000006")
+
+    assert len(result["nearby"]) == 1
+    assert result["nearby"][0]["distance_km"] == pytest.approx(11.1, abs=0.2)

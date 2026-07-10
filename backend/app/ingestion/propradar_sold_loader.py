@@ -8,11 +8,10 @@ actual gazetted suburbs (e.g. "Rochedale - Burbank", "Kedron - Gordon Park").
 PropRadar's endpoint is suburb-scoped, so a combined SA2 needs a separate
 query per real suburb it contains — querying just the first part (as an
 earlier version of this loader did, treating the rest as a same-suburb
-fallback name like domain_prices_loader.py's `_suburb_candidates` does for
-Domain's different API shape) silently misses every listing in the other
-part(s). See `_split_suburb_parts`. Each returned listing's own `address`
-field is also parsed for its real suburb_name/postcode — ground truth from
-the data itself, independent of which query found it.
+fallback name) silently misses every listing in the other part(s). See
+`_split_suburb_parts`. Each returned listing's own `address` field is also
+parsed for its real suburb_name/postcode — ground truth from the data
+itself, independent of which query found it.
 
 Endpoint used
 ─────────────
@@ -83,7 +82,6 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db.models import PropertySale, SA2Region
-from app.ingestion.domain_prices_loader import _STATE_SUFFIX_RE
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +90,11 @@ _REQUEST_DELAY = 0.5  # seconds between calls
 _DEFAULT_MAX_PAGES = 3  # safety cap per suburb so one run can't blow a limited quota
 _PAGE_SIZE = 50  # listings per call — larger than the API's own default (20) to cut call count
 _DEFAULT_MONTHS = 60  # 5 years, to give the price-history chart real depth
+
+# Strips an ABS state-name suffix off an SA2 name, e.g. "St Kilda (Vic.)" -> "St Kilda".
+_STATE_SUFFIX_RE = re.compile(
+    r"\s*\((Vic\.|NSW|ACT|SA|WA|QLD|NT|Tas\.)\)\s*$", re.IGNORECASE
+)
 
 # Map DB state codes -> PropRadar's expected path segment (lowercase, per the
 # one endpoint we've confirmed reachable: /v1/suburbs/QLD/chermside/sold used
@@ -189,8 +192,8 @@ def load_propradar_sold(
         for sa2_code, sa2_name, sa2_state in sa2_rows:
             report.suburbs_processed += 1
 
-            domain_state = _STATE_MAP.get(sa2_state)
-            if domain_state is None:
+            pr_state = _STATE_MAP.get(sa2_state)
+            if pr_state is None:
                 logger.warning("Unknown state %s for SA2 %s — skipping", sa2_state, sa2_code)
                 report.suburbs_not_found += 1
                 continue
@@ -200,7 +203,7 @@ def load_propradar_sold(
                 report.suburbs_skipped_fresh += 1
                 continue
 
-            listings = _fetch_for_sa2(client, api_key, domain_state, sa2_name, max_pages, months, report)
+            listings = _fetch_for_sa2(client, api_key, pr_state, sa2_name, max_pages, months, report)
 
             if not listings:
                 report.suburbs_not_found += 1
@@ -225,11 +228,9 @@ def load_propradar_sold(
 
 def _split_suburb_parts(sa2_name: str) -> list[str]:
     """Split a combined SA2 name into each real suburb it represents, e.g.
-    "Rochedale - Burbank" -> ["Rochedale", "Burbank"]. Unlike
-    domain_prices_loader.py's `_suburb_candidates` (which treats the part
-    after " - " as a same-suburb fallback name, appropriate for Domain's
-    postcode+name lookup), PropRadar is purely suburb-scoped — each part is
-    a genuinely different suburb we'd otherwise silently never query.
+    "Rochedale - Burbank" -> ["Rochedale", "Burbank"]. PropRadar is purely
+    suburb-scoped, so each part is queried independently — each part is a
+    genuinely different suburb we'd otherwise silently never query.
 
     Note this over-queries for compass-qualifier SA2 names that aren't
     really two suburbs (e.g. "Melbourne CBD - West") — "West" alone will

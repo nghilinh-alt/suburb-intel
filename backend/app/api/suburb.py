@@ -120,10 +120,6 @@ async def suburb_report(
             "market_stats": market_stats,
             "rental_market": rental_market,
             "property_market": {
-                "domain_median_house_price": m.domain_median_house_price,
-                "domain_median_unit_price": m.domain_median_unit_price,
-                "domain_days_on_market": m.domain_days_on_market,
-                "domain_clearance_rate": m.domain_clearance_rate,
                 "building_approvals_1yr": m.building_approvals_1yr,
                 "recent_sales": recent_sales,
                 "recent_sales_available": len(recent_sales) > 0,

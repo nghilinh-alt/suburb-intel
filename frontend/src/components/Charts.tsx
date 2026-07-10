@@ -7,11 +7,13 @@ export interface BarItem {
   label: string
   value: number
   formattedValue?: string
+  onClick?: () => void
 }
 
 /** Horizontal bar list — good for percentages, deciles, or counts where you
  * want to scan several labeled values at once. `max` defaults to the largest
- * item's value (or 100 if `isPercent` is set). */
+ * item's value (or 100 if `isPercent` is set). An item with `onClick` renders
+ * as a clickable row (e.g. to jump to a related section elsewhere on the page). */
 export function HorizontalBars({
   items,
   max,
@@ -27,7 +29,14 @@ export function HorizontalBars({
   return (
     <div style={{ display: 'grid', gap: '12px' }}>
       {items.map((item) => (
-        <div key={item.label}>
+        <div
+          key={item.label}
+          onClick={item.onClick}
+          role={item.onClick ? 'button' : undefined}
+          tabIndex={item.onClick ? 0 : undefined}
+          onKeyDown={item.onClick ? (e) => (e.key === 'Enter' || e.key === ' ') && item.onClick!() : undefined}
+          style={item.onClick ? { cursor: 'pointer' } : undefined}
+        >
           <div
             style={{
               display: 'flex',
@@ -36,7 +45,9 @@ export function HorizontalBars({
               marginBottom: '4px',
             }}
           >
-            <span style={{ color: colors.textSecondary }}>{item.label}</span>
+            <span style={{ color: item.onClick ? colors.pink : colors.textSecondary, textDecoration: item.onClick ? 'underline' : undefined }}>
+              {item.label}
+            </span>
             <span style={{ color: colors.textPrimary, fontWeight: 600 }}>
               {item.formattedValue ?? item.value}
             </span>

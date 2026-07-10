@@ -35,10 +35,6 @@ interface SpecPriceHistory {
 }
 
 interface PropertyMarket {
-  domain_median_house_price: number | null
-  domain_median_unit_price: number | null
-  domain_days_on_market: number | null
-  domain_clearance_rate: number | null
   building_approvals_1yr: number | null
   recent_sales: RecentSale[]
   recent_sales_available: boolean
@@ -225,6 +221,7 @@ interface LocalPoiEntry {
 
 interface NearbyPoiEntry extends LocalPoiEntry {
   suburb: string
+  distance_km: number
 }
 
 interface PointsOfInterest {
@@ -425,7 +422,7 @@ function Pill({ children, tone = 'blue' }: { children: ReactNode; tone?: 'blue' 
 const POI_GROUPS = ['Hospital', 'Shopping Centre', 'Stadium & Arena', 'Attraction']
 
 function PoiRow({ poi, showSuburb = false }: { poi: NearbyPoiEntry | LocalPoiEntry; showSuburb?: boolean }) {
-  const suburb = showSuburb ? (poi as NearbyPoiEntry).suburb : undefined
+  const nearby = showSuburb ? (poi as NearbyPoiEntry) : undefined
   return (
     <div
       style={{
@@ -441,7 +438,7 @@ function PoiRow({ poi, showSuburb = false }: { poi: NearbyPoiEntry | LocalPoiEnt
     >
       <span style={{ color: colors.textPrimary }}>
         {poi.name}
-        {suburb && <span style={{ color: colors.textMuted }}> · {suburb}</span>}
+        {nearby && <span style={{ color: colors.textMuted }}> · {nearby.suburb} · {nearby.distance_km.toFixed(1)} km away</span>}
       </span>
       {poi.hospital_type && (
         <Pill tone={poi.hospital_type === 'Public' ? 'blue' : 'amber'}>{poi.hospital_type}</Pill>
@@ -595,11 +592,24 @@ function ReadyView({ data }: { data: SuburbReport }) {
   } = data
 
   const [selectedSpecLabel, setSelectedSpecLabel] = useState<string | null>(null)
+  const chartableSpecs = property_market.price_history_by_spec.filter((s) => s.history.length >= 2)
   const activeSpecLabel =
-    selectedSpecLabel && property_market.price_history_by_spec.some((s) => s.label === selectedSpecLabel)
+    selectedSpecLabel && chartableSpecs.some((s) => s.label === selectedSpecLabel)
       ? selectedSpecLabel
-      : property_market.price_history_by_spec[0]?.label ?? null
-  const activeSpecHistory = property_market.price_history_by_spec.find((s) => s.label === activeSpecLabel) ?? null
+      : chartableSpecs[0]?.label ?? null
+  const activeSpecHistory = chartableSpecs.find((s) => s.label === activeSpecLabel) ?? null
+  const chartableSpecLabels = new Set(chartableSpecs.map((s) => s.label))
+  const rentalMarketSuburbs = new Set(rental_market.map((r) => r.suburb_name))
+  const marketSnapshotSuburbs = new Set(market_stats.map((s) => s.suburb_name))
+
+  function jumpTo(id: string) {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  function jumpToSpec(label: string) {
+    setSelectedSpecLabel(label)
+    jumpTo('median-sold-price-over-time')
+  }
 
   return (
     <>
@@ -649,14 +659,34 @@ function ReadyView({ data }: { data: SuburbReport }) {
             {market_stats.map((s) => (
               <div
                 key={s.suburb_name}
+                id={`market-snapshot-${s.suburb_name}`}
                 style={{
                   padding: '16px',
                   backgroundColor: colors.pageBg,
                   borderRadius: '8px',
+                  scrollMarginTop: '20px',
                 }}
               >
                 <h4 style={{ fontSize: '14px', fontWeight: 600, color: colors.textPrimary, margin: '0 0 12px 0' }}>
                   {s.suburb_name}
+                  {rentalMarketSuburbs.has(s.suburb_name) && (
+                    <button
+                      onClick={() => jumpTo(`rental-market-${s.suburb_name}`)}
+                      style={{
+                        marginLeft: '10px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        color: colors.pink,
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: 0,
+                        textDecoration: 'underline',
+                      }}
+                    >
+                      See rental detail ↓
+                    </button>
+                  )}
                 </h4>
                 <div
                   style={{
@@ -747,37 +777,14 @@ function ReadyView({ data }: { data: SuburbReport }) {
       {/* Housing Market — the headline section */}
       <Section
         title="Housing Market"
-        subtitle="Median prices sourced from Domain; per-listing sold data below is ready for PropRadar once connected."
+        subtitle="Sold-listing data from PropRadar. See Market Snapshot above for median price, rent, and yield."
       >
         <StatGrid>
-          <Stat label="Median House Price" value={fmtCurrency(property_market.domain_median_house_price)} />
-          <Stat label="Median Unit Price" value={fmtCurrency(property_market.domain_median_unit_price)} />
-          <Stat label="Days on Market" value={fmtDays(property_market.domain_days_on_market)} />
-          <Stat
-            label="Auction Clearance Rate"
-            value={
-              property_market.domain_clearance_rate != null
-                ? fmtPct(property_market.domain_clearance_rate * 100)
-                : '—'
-            }
-          />
           <Stat label="Dwellings Approved (1yr)" value={fmtNum(property_market.building_approvals_1yr)} />
         </StatGrid>
 
-        {property_market.domain_median_house_price != null && property_market.domain_median_unit_price != null && (
-          <div style={{ marginTop: '24px' }}>
-            <HorizontalBars
-              color={colors.pink}
-              items={[
-                { label: 'Median House Price', value: property_market.domain_median_house_price, formattedValue: fmtCurrency(property_market.domain_median_house_price) },
-                { label: 'Median Unit Price', value: property_market.domain_median_unit_price, formattedValue: fmtCurrency(property_market.domain_median_unit_price) },
-              ]}
-            />
-          </div>
-        )}
-
-        {property_market.price_history_by_spec.length > 0 && (
-          <div style={{ marginTop: '24px' }}>
+        {chartableSpecs.length > 0 && (
+          <div id="median-sold-price-over-time" style={{ marginTop: '24px', scrollMarginTop: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '8px', marginBottom: '4px' }}>
               <h4 style={{ fontSize: '14px', fontWeight: 600, color: colors.textPrimary, margin: 0 }}>
                 Median Sold Price Over Time
@@ -794,7 +801,7 @@ function ReadyView({ data }: { data: SuburbReport }) {
                   color: colors.textPrimary,
                 }}
               >
-                {property_market.price_history_by_spec.map((s) => (
+                {chartableSpecs.map((s) => (
                   <option key={s.label} value={s.label}>
                     {s.label}
                   </option>
@@ -803,17 +810,13 @@ function ReadyView({ data }: { data: SuburbReport }) {
             </div>
             <p style={{ fontSize: '12px', color: colors.textMuted, marginBottom: '10px' }}>
               From PropRadar sold listings, monthly, for this exact bed/bath/garage/type combo — showing however
-              much history is available (up to 5 years).
+              much history is available (up to 5 years). Only specs with at least two months of sales are listed.
             </p>
-            {activeSpecHistory && activeSpecHistory.history.length >= 2 ? (
+            {activeSpecHistory && (
               <TrendLine
                 points={activeSpecHistory.history.map((p) => ({ label: p.period, value: p.median_price }))}
                 width={600}
               />
-            ) : (
-              <p style={{ color: colors.textMuted, fontSize: '13px' }}>
-                Not enough sold listings for this spec yet to chart a trend.
-              </p>
             )}
           </div>
         )}
@@ -825,7 +828,7 @@ function ReadyView({ data }: { data: SuburbReport }) {
             </h4>
             <p style={{ fontSize: '12px', color: colors.textMuted, marginBottom: '10px' }}>
               Bed / bath / garage combinations with at least one sold listing, sorted progressively (1 Bed/1 Bath,
-              1 Bed/2 Bath, 2 Bed/1 Bath, ...).
+              1 Bed/2 Bath, 2 Bed/1 Bath, ...). Underlined specs have a price trend below — click to jump to it.
             </p>
             <HorizontalBars
               color={colors.blue}
@@ -833,6 +836,7 @@ function ReadyView({ data }: { data: SuburbReport }) {
                 label: `${s.label} (${s.sale_count} sold)`,
                 value: s.median_price,
                 formattedValue: fmtCurrency(s.median_price),
+                onClick: chartableSpecLabels.has(s.label) ? () => jumpToSpec(s.label) : undefined,
               }))}
             />
           </div>
@@ -901,7 +905,7 @@ function ReadyView({ data }: { data: SuburbReport }) {
       {rental_market.length > 0 && (
         <Section
           title="Rental Market"
-          subtitle="PropRadar's suburb-level rent, yield, days-on-market and vacancy. House/unit is the finest granularity available — PropRadar has no per-bed/bath rental-listings endpoint, only this suburb-wide snapshot. Trend charts fill in as more monthly snapshots accumulate."
+          subtitle="PropRadar's suburb-level rent and yield, visualised rather than repeating Market Snapshot's numbers. House/unit is the finest granularity available — PropRadar has no per-bed/bath rental-listings endpoint. Trend charts fill in as more monthly snapshots accumulate."
         >
           <div style={{ display: 'grid', gap: '16px' }}>
             {rental_market.map((r) => {
@@ -912,27 +916,76 @@ function ReadyView({ data }: { data: SuburbReport }) {
               const vacancyPoints = r.history
                 .map((h) => ({ label: h.period, value: h.vacancy_rate_pct }))
                 .filter((p): p is { label: string; value: number } => p.value != null)
+              const rentBars = [
+                latest.median_house_rent_weekly != null && { label: 'House', value: latest.median_house_rent_weekly, formattedValue: `$${fmtNum(latest.median_house_rent_weekly)}` },
+                latest.median_unit_rent_weekly != null && { label: 'Unit', value: latest.median_unit_rent_weekly, formattedValue: `$${fmtNum(latest.median_unit_rent_weekly)}` },
+              ].filter((b): b is { label: string; value: number; formattedValue: string } => !!b)
+              const yieldBars = [
+                latest.gross_yield_house_pct != null && { label: 'House', value: latest.gross_yield_house_pct, formattedValue: fmtPct(latest.gross_yield_house_pct) },
+                latest.gross_yield_unit_pct != null && { label: 'Unit', value: latest.gross_yield_unit_pct, formattedValue: fmtPct(latest.gross_yield_unit_pct) },
+              ].filter((b): b is { label: string; value: number; formattedValue: string } => !!b)
               return (
                 <div
                   key={r.suburb_name}
+                  id={`rental-market-${r.suburb_name}`}
                   style={{
                     padding: '16px',
                     backgroundColor: colors.pageBg,
                     borderRadius: '8px',
+                    scrollMarginTop: '20px',
                   }}
                 >
-                  <h4 style={{ fontSize: '14px', fontWeight: 600, color: colors.textPrimary, margin: '0 0 12px 0' }}>
+                  <h4 style={{ fontSize: '14px', fontWeight: 600, color: colors.textPrimary, margin: '0 0 16px 0' }}>
                     {r.suburb_name}
+                    {marketSnapshotSuburbs.has(r.suburb_name) && (
+                      <button
+                        onClick={() => jumpTo(`market-snapshot-${r.suburb_name}`)}
+                        style={{
+                          marginLeft: '10px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          color: colors.pink,
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: 0,
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        ↑ See price & growth
+                      </button>
+                    )}
                   </h4>
-                  <StatGrid>
-                    <Stat label="House Weekly Rent" value={latest.median_house_rent_weekly != null ? `$${fmtNum(latest.median_house_rent_weekly)}` : '—'} />
-                    <Stat label="Unit Weekly Rent" value={latest.median_unit_rent_weekly != null ? `$${fmtNum(latest.median_unit_rent_weekly)}` : '—'} />
-                    <Stat label="House Gross Yield" value={fmtPct(latest.gross_yield_house_pct)} />
-                    <Stat label="Unit Gross Yield" value={fmtPct(latest.gross_yield_unit_pct)} />
-                    <Stat label="House Days on Market" value={fmtDays(latest.days_on_market_house)} />
-                    <Stat label="Unit Days on Market" value={fmtDays(latest.days_on_market_unit)} />
-                    <Stat label="Vacancy Rate" value={fmtPct(latest.vacancy_rate_pct)} />
-                  </StatGrid>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    {rentBars.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: '12px', color: colors.textMuted, marginBottom: '8px' }}>Weekly Rent</div>
+                        <HorizontalBars color={colors.blue} items={rentBars} />
+                      </div>
+                    )}
+                    {yieldBars.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: '12px', color: colors.textMuted, marginBottom: '8px' }}>Gross Yield</div>
+                        <HorizontalBars color={colors.green} items={yieldBars} />
+                      </div>
+                    )}
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: '20px',
+                      marginTop: '16px',
+                      paddingTop: '16px',
+                      borderTop: `1px solid ${colors.border}`,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <MiniStat label="House Days on Market" value={fmtDays(latest.days_on_market_house)} />
+                    <MiniStat label="Unit Days on Market" value={fmtDays(latest.days_on_market_unit)} />
+                    <MiniStat label="Vacancy Rate" value={fmtPct(latest.vacancy_rate_pct)} />
+                  </div>
 
                   {rentPoints.length >= 2 || vacancyPoints.length >= 2 ? (
                     <div style={{ marginTop: '20px', display: 'grid', gap: '20px' }}>
@@ -1200,16 +1253,6 @@ function ReadyView({ data }: { data: SuburbReport }) {
             : "No rated schools found for this SA2 (ACARA's School ICSEA data requires accepting commercial-use terms we haven't)."
         }
       >
-        {schools.state_percentile && (
-          <div style={{ marginBottom: '20px' }}>
-            <Pill tone="green">{schools.state_percentile.top_pct_label} by avg. school ICSEA</Pill>
-            <span style={{ fontSize: '12px', color: colors.textMuted, marginLeft: '10px' }}>
-              Avg ICSEA {Math.round(schools.state_percentile.avg_icsea)} · ranked against{' '}
-              {schools.state_percentile.sample_size} suburbs in {schools.state_percentile.state}
-            </span>
-          </div>
-        )}
-
         {schools.avg_school_icsea != null && !schools.state_percentile && (
           <StatGrid>
             <Stat label="Avg ICSEA Index (legacy aggregate)" value={Math.round(schools.avg_school_icsea).toString()} />

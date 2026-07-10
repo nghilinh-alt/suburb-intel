@@ -1,11 +1,15 @@
 """Multi-filter suburb search for the Search page's filter sidebar.
 
-Combines SA2Region (location), ABSCEntensMetrics (census + Domain + Overture
-+ ABS derived columns), SuburbScore (investment/economic/demographic/etc.
+Combines SA2Region (location), ABSCEntensMetrics (census + Overture + ABS
+derived columns), SuburbScore (investment/economic/demographic/etc.
 composite scores from app.jobs.backfill_scores), and SuburbMarketStats
-(PropRadar yield/vacancy — sparse today, only populated for the pilot SA2s,
-see CLAUDE.md's refresh schedule) into one filterable, sortable, paginated
-query.
+(PropRadar — price/rent/yield/vacancy/days-on-market, coverage varies by
+suburb, see CLAUDE.md's refresh schedule) into one filterable, sortable,
+paginated query.
+
+PropRadar is the sole source for price/rent/yield/days-on-market — there is
+no Domain API integration (removed; it was never actually connected, every
+domain_* field was permanently null).
 
 SuburbMarketStats has up to one row per real suburb per calendar month (see
 that model's docstring), so a SA2 can have several rows — averaged per SA2
@@ -56,19 +60,6 @@ class SuburbFilters:
     max_vacancy_rate_pct: Optional[float] = None
 
 
-_SORTABLE_COLUMNS: Dict[str, Any] = {
-    "population": ABSCEntensMetrics.population,
-    "median_income": ABSCEntensMetrics.median_income,
-    "median_house_price": ABSCEntensMetrics.domain_median_house_price,
-    "median_unit_price": ABSCEntensMetrics.domain_median_unit_price,
-    "pop_growth_5yr_pct": ABSCEntensMetrics.pop_growth_5yr,
-    "median_rent_weekly": ABSCEntensMetrics.median_rent_weekly,
-    "distance_to_cbd_km": SA2Region.distance_to_cbd_km,
-    "investment_score": SuburbScore.investment_score,
-    "economic_score": SuburbScore.economic_score,
-    "demographic_score": SuburbScore.demographic_score,
-}
-
 _DEFAULT_SORT = "population"
 
 
@@ -92,6 +83,9 @@ async def search_suburbs_filtered(
     market_agg = (
         select(
             SuburbMarketStats.sa2_code,
+            func.avg(SuburbMarketStats.median_house_price).label("avg_median_house_price"),
+            func.avg(SuburbMarketStats.median_unit_price).label("avg_median_unit_price"),
+            func.avg(SuburbMarketStats.days_on_market_house).label("avg_days_on_market_house"),
             func.avg(SuburbMarketStats.gross_yield_house_pct).label("avg_gross_yield_house_pct"),
             func.avg(SuburbMarketStats.vacancy_rate_pct).label("avg_vacancy_rate_pct"),
         )
@@ -115,12 +109,12 @@ async def search_suburbs_filtered(
             ABSCEntensMetrics.avg_school_icsea,
             ABSCEntensMetrics.pop_growth_5yr,
             ABSCEntensMetrics.pop_growth_proj_pct,
-            ABSCEntensMetrics.domain_median_house_price,
-            ABSCEntensMetrics.domain_median_unit_price,
-            ABSCEntensMetrics.domain_days_on_market,
             SuburbScore.investment_score,
             SuburbScore.economic_score,
             SuburbScore.demographic_score,
+            market_agg.c.avg_median_house_price,
+            market_agg.c.avg_median_unit_price,
+            market_agg.c.avg_days_on_market_house,
             market_agg.c.avg_gross_yield_house_pct,
             market_agg.c.avg_vacancy_rate_pct,
         )
@@ -140,7 +134,19 @@ async def search_suburbs_filtered(
         select(func.count()).select_from(base.subquery())
     )).scalar_one()
 
-    sort_col = _SORTABLE_COLUMNS.get(sort_by, _SORTABLE_COLUMNS[_DEFAULT_SORT])
+    sortable_columns: Dict[str, Any] = {
+        "population": ABSCEntensMetrics.population,
+        "median_income": ABSCEntensMetrics.median_income,
+        "median_house_price": market_agg.c.avg_median_house_price,
+        "median_unit_price": market_agg.c.avg_median_unit_price,
+        "pop_growth_5yr_pct": ABSCEntensMetrics.pop_growth_5yr,
+        "median_rent_weekly": ABSCEntensMetrics.median_rent_weekly,
+        "distance_to_cbd_km": SA2Region.distance_to_cbd_km,
+        "investment_score": SuburbScore.investment_score,
+        "economic_score": SuburbScore.economic_score,
+        "demographic_score": SuburbScore.demographic_score,
+    }
+    sort_col = sortable_columns.get(sort_by, sortable_columns[_DEFAULT_SORT])
     order = sort_col.asc().nulls_last() if sort_dir == "asc" else sort_col.desc().nulls_last()
     page_stmt = base.order_by(order).limit(limit).offset(offset)
 
@@ -163,13 +169,13 @@ def _apply_filters(stmt, filters: SuburbFilters, market_agg):
     if f.max_distance_to_cbd_km is not None:
         stmt = stmt.where(SA2Region.distance_to_cbd_km <= f.max_distance_to_cbd_km)
     if f.min_median_house_price is not None:
-        stmt = stmt.where(ABSCEntensMetrics.domain_median_house_price >= f.min_median_house_price)
+        stmt = stmt.where(market_agg.c.avg_median_house_price >= f.min_median_house_price)
     if f.max_median_house_price is not None:
-        stmt = stmt.where(ABSCEntensMetrics.domain_median_house_price <= f.max_median_house_price)
+        stmt = stmt.where(market_agg.c.avg_median_house_price <= f.max_median_house_price)
     if f.min_median_unit_price is not None:
-        stmt = stmt.where(ABSCEntensMetrics.domain_median_unit_price >= f.min_median_unit_price)
+        stmt = stmt.where(market_agg.c.avg_median_unit_price >= f.min_median_unit_price)
     if f.max_median_unit_price is not None:
-        stmt = stmt.where(ABSCEntensMetrics.domain_median_unit_price <= f.max_median_unit_price)
+        stmt = stmt.where(market_agg.c.avg_median_unit_price <= f.max_median_unit_price)
     if f.min_population is not None:
         stmt = stmt.where(ABSCEntensMetrics.population >= f.min_population)
     if f.max_population is not None:
@@ -197,7 +203,7 @@ def _apply_filters(stmt, filters: SuburbFilters, market_agg):
     if f.min_avg_school_icsea is not None:
         stmt = stmt.where(ABSCEntensMetrics.avg_school_icsea >= f.min_avg_school_icsea)
     if f.max_days_on_market is not None:
-        stmt = stmt.where(ABSCEntensMetrics.domain_days_on_market <= f.max_days_on_market)
+        stmt = stmt.where(market_agg.c.avg_days_on_market_house <= f.max_days_on_market)
     if f.min_investment_score is not None:
         stmt = stmt.where(SuburbScore.investment_score >= f.min_investment_score)
     if f.min_economic_score is not None:
@@ -227,9 +233,9 @@ def _row_to_dict(row) -> Dict[str, Any]:
         "avg_school_icsea": row.avg_school_icsea,
         "pop_growth_5yr_pct": row.pop_growth_5yr,
         "pop_growth_proj_pct": row.pop_growth_proj_pct,
-        "median_house_price": row.domain_median_house_price,
-        "median_unit_price": row.domain_median_unit_price,
-        "days_on_market": row.domain_days_on_market,
+        "median_house_price": row.avg_median_house_price,
+        "median_unit_price": row.avg_median_unit_price,
+        "days_on_market": row.avg_days_on_market_house,
         "investment_score": row.investment_score,
         "economic_score": row.economic_score,
         "demographic_score": row.demographic_score,

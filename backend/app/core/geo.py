@@ -49,10 +49,10 @@ def distance_to_cbd_km(sa2_centroid: tuple[float, float], state: str) -> float |
     cbd = CBD_COORDS.get(state)
     if cbd is None:
         return None
-    return _haversine_km(sa2_centroid, cbd)
+    return haversine_km(sa2_centroid, cbd)
 
 
-def _haversine_km(a: tuple[float, float], b: tuple[float, float]) -> float:
+def haversine_km(a: tuple[float, float], b: tuple[float, float]) -> float:
     lat1, lon1 = a
     lat2, lon2 = b
     phi1, phi2 = math.radians(lat1), math.radians(lat2)

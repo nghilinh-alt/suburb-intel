@@ -92,20 +92,27 @@ const EMPTY_DRAFT: DraftFilters = {
   maxVacancyRatePct: '',
 }
 
+// Large-value filter fields are entered in millions ($M) or thousands (k) in
+// the UI for readability — these multipliers convert the entered number back
+// to raw units before sending it to the API.
+const MILLIONS = 1_000_000
+const THOUSANDS = 1_000
+
 function draftToFilters(d: DraftFilters): SuburbFilters {
-  const num = (s: string): number | undefined => (s.trim() === '' ? undefined : Number(s))
+  const num = (s: string, scale = 1): number | undefined =>
+    s.trim() === '' ? undefined : Number(s) * scale
   return {
     states: d.states.length > 0 ? d.states : undefined,
     max_distance_to_cbd_km: num(d.maxDistanceToCbdKm),
-    min_median_house_price: num(d.minMedianHousePrice),
-    max_median_house_price: num(d.maxMedianHousePrice),
-    min_median_unit_price: num(d.minMedianUnitPrice),
-    max_median_unit_price: num(d.maxMedianUnitPrice),
-    min_population: num(d.minPopulation),
-    max_population: num(d.maxPopulation),
+    min_median_house_price: num(d.minMedianHousePrice, MILLIONS),
+    max_median_house_price: num(d.maxMedianHousePrice, MILLIONS),
+    min_median_unit_price: num(d.minMedianUnitPrice, MILLIONS),
+    max_median_unit_price: num(d.maxMedianUnitPrice, MILLIONS),
+    min_population: num(d.minPopulation, THOUSANDS),
+    max_population: num(d.maxPopulation, THOUSANDS),
     min_pop_growth_5yr_pct: num(d.minPopGrowth5yrPct),
-    min_median_income: num(d.minMedianIncome),
-    max_median_income: num(d.maxMedianIncome),
+    min_median_income: num(d.minMedianIncome, THOUSANDS),
+    max_median_income: num(d.maxMedianIncome, THOUSANDS),
     min_median_rent_weekly: num(d.minMedianRentWeekly),
     max_median_rent_weekly: num(d.maxMedianRentWeekly),
     min_owner_occupied_pct: num(d.minOwnerOccupiedPct),
@@ -473,35 +480,39 @@ function FilterSidebar({
 
       <RangeFilter
         label="Median House Price"
-        hint="Domain API data — not currently populated for any suburb; this filter won't narrow results yet"
+        hint="PropRadar data — broadest coverage in capital cities, sparse elsewhere. Enter in millions, e.g. 1.2 = $1.2M"
         minValue={draft.minMedianHousePrice}
         maxValue={draft.maxMedianHousePrice}
         onMinChange={(v) => set('minMedianHousePrice', v)}
         onMaxChange={(v) => set('maxMedianHousePrice', v)}
         prefix="$"
+        suffix="M"
       />
       <RangeFilter
         label="Median Unit Price"
-        hint="Domain API data — not currently populated for any suburb; this filter won't narrow results yet"
+        hint="PropRadar data — broadest coverage in capital cities, sparse elsewhere. Enter in millions, e.g. 1.2 = $1.2M"
         minValue={draft.minMedianUnitPrice}
         maxValue={draft.maxMedianUnitPrice}
         onMinChange={(v) => set('minMedianUnitPrice', v)}
         onMaxChange={(v) => set('maxMedianUnitPrice', v)}
         prefix="$"
+        suffix="M"
       />
       <MinFilter
         label="Minimum Gross Yield (House)"
-        hint="PropRadar data — currently only available for a handful of pilot suburbs"
+        hint="PropRadar data — broadest coverage in capital cities, sparse elsewhere"
         value={draft.minGrossYieldHousePct}
         onChange={(v) => set('minGrossYieldHousePct', v)}
         suffix="%"
       />
       <RangeFilter
         label="Population"
+        hint="Enter in thousands, e.g. 30 = 30,000"
         minValue={draft.minPopulation}
         maxValue={draft.maxPopulation}
         onMinChange={(v) => set('minPopulation', v)}
         onMaxChange={(v) => set('maxPopulation', v)}
+        suffix="k"
       />
       <MinFilter
         label="Population Growth (5yr)"
@@ -511,11 +522,13 @@ function FilterSidebar({
       />
       <RangeFilter
         label="Median Income"
+        hint="Enter in thousands, e.g. 80 = $80,000"
         minValue={draft.minMedianIncome}
         maxValue={draft.maxMedianIncome}
         onMinChange={(v) => set('minMedianIncome', v)}
         onMaxChange={(v) => set('maxMedianIncome', v)}
         prefix="$"
+        suffix="k"
       />
       <MinFilter
         label="Investment Score"
@@ -529,14 +542,14 @@ function FilterSidebar({
       />
       <MaxFilter
         label="Days on Market"
-        hint="Domain API data — not currently populated for any suburb; this filter won't narrow results yet"
+        hint="PropRadar data — broadest coverage in capital cities, sparse elsewhere"
         value={draft.maxDaysOnMarket}
         onChange={(v) => set('maxDaysOnMarket', v)}
         suffix="days"
       />
       <MaxFilter
         label="Vacancy Rate"
-        hint="PropRadar data — currently only available for a handful of pilot suburbs"
+        hint="PropRadar data — broadest coverage in capital cities, sparse elsewhere"
         value={draft.maxVacancyRatePct}
         onChange={(v) => set('maxVacancyRatePct', v)}
         suffix="%"
@@ -607,7 +620,7 @@ function FilterSidebar({
   )
 }
 
-function FilterGroup({ label, children }: { label: string; children: ReactNode }) {
+function FilterGroup({ label, children }: { label: ReactNode; children: ReactNode }) {
   return (
     <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: `1px solid ${colors.border}` }}>
       <div style={{ fontSize: '12px', fontWeight: 600, color: colors.textSecondary, marginBottom: '8px' }}>
@@ -615,6 +628,25 @@ function FilterGroup({ label, children }: { label: string; children: ReactNode }
       </div>
       {children}
     </div>
+  )
+}
+
+function NoDataBadge() {
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        fontSize: '10px',
+        fontWeight: 700,
+        color: colors.amber,
+        backgroundColor: colors.amberLight,
+        padding: '2px 7px',
+        borderRadius: '999px',
+        marginLeft: '6px',
+      }}
+    >
+      NO DATA YET
+    </span>
   )
 }
 
@@ -627,6 +659,7 @@ function RangeFilter({
   prefix,
   suffix,
   hint,
+  disabled,
 }: {
   label: string
   minValue: string
@@ -636,13 +669,14 @@ function RangeFilter({
   prefix?: string
   suffix?: string
   hint?: string
+  disabled?: boolean
 }) {
   return (
-    <FilterGroup label={label}>
+    <FilterGroup label={<>{label}{disabled && <NoDataBadge />}</>}>
       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-        <NumberBox value={minValue} onChange={onMinChange} placeholder="Min" prefix={prefix} suffix={suffix} />
+        <NumberBox value={minValue} onChange={onMinChange} placeholder="Min" prefix={prefix} suffix={suffix} disabled={disabled} />
         <span style={{ color: colors.textMuted, fontSize: '12px' }}>–</span>
-        <NumberBox value={maxValue} onChange={onMaxChange} placeholder="Max" prefix={prefix} suffix={suffix} />
+        <NumberBox value={maxValue} onChange={onMaxChange} placeholder="Max" prefix={prefix} suffix={suffix} disabled={disabled} />
       </div>
       {hint && <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '6px' }}>{hint}</div>}
     </FilterGroup>
@@ -655,16 +689,18 @@ function MinFilter({
   onChange,
   suffix,
   hint,
+  disabled,
 }: {
   label: string
   value: string
   onChange: (v: string) => void
   suffix?: string
   hint?: string
+  disabled?: boolean
 }) {
   return (
-    <FilterGroup label={label}>
-      <NumberBox value={value} onChange={onChange} placeholder="Minimum" suffix={suffix} />
+    <FilterGroup label={<>{label}{disabled && <NoDataBadge />}</>}>
+      <NumberBox value={value} onChange={onChange} placeholder="Minimum" suffix={suffix} disabled={disabled} />
       {hint && <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '6px' }}>{hint}</div>}
     </FilterGroup>
   )
@@ -676,16 +712,18 @@ function MaxFilter({
   onChange,
   suffix,
   hint,
+  disabled,
 }: {
   label: string
   value: string
   onChange: (v: string) => void
   suffix?: string
   hint?: string
+  disabled?: boolean
 }) {
   return (
-    <FilterGroup label={label}>
-      <NumberBox value={value} onChange={onChange} placeholder="Maximum" suffix={suffix} />
+    <FilterGroup label={<>{label}{disabled && <NoDataBadge />}</>}>
+      <NumberBox value={value} onChange={onChange} placeholder="Maximum" suffix={suffix} disabled={disabled} />
       {hint && <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '6px' }}>{hint}</div>}
     </FilterGroup>
   )
@@ -697,12 +735,14 @@ function NumberBox({
   placeholder,
   prefix,
   suffix,
+  disabled,
 }: {
   value: string
   onChange: (v: string) => void
   placeholder?: string
   prefix?: string
   suffix?: string
+  disabled?: boolean
 }) {
   return (
     <div style={{ position: 'relative', flex: 1 }}>
@@ -716,8 +756,10 @@ function NumberBox({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        disabled={disabled}
         style={{
           ...numberInputStyle,
+          ...(disabled ? { backgroundColor: colors.border, cursor: 'not-allowed', color: colors.textMuted } : {}),
           paddingLeft: prefix ? '18px' : '10px',
           paddingRight: suffix ? '28px' : '10px',
         }}
