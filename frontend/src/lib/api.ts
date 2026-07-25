@@ -96,6 +96,9 @@ export interface SuburbFilters {
   min_demographic_score?: number
   min_gross_yield_house_pct?: number
   max_vacancy_rate_pct?: number
+  momentum_phase?: MomentumPhase
+  growth_yield_quadrant?: GrowthYieldQuadrant
+  min_scarcity_score?: number
 }
 
 export interface FilteredSuburb {
@@ -119,6 +122,11 @@ export interface FilteredSuburb {
   investment_score: number | null
   economic_score: number | null
   demographic_score: number | null
+  momentum_score: number | null
+  momentum_phase: MomentumPhase | null
+  growth_yield_quadrant: GrowthYieldQuadrant | null
+  neighborhood_signal: NeighborhoodSignal | null
+  scarcity_score: number | null
   gross_yield_house_pct: number | null
   vacancy_rate_pct: number | null
 }
@@ -166,6 +174,12 @@ export type ScoreType =
   | 'housing_pressure_score'
   | 'resilience_score'
   | 'gov_investment_score'
+  | 'momentum_score'
+  | 'scarcity_score'
+
+export type MomentumPhase = 'accelerating' | 'steady' | 'cooling'
+export type GrowthYieldQuadrant = 'hot' | 'growth_play' | 'cash_flow_play' | 'avoid'
+export type NeighborhoodSignal = 'surrounded_by_acceleration' | 'surrounded_by_cooling'
 
 export interface RankedSuburb {
   rank: number
@@ -179,6 +193,11 @@ export interface RankedSuburb {
   housing_pressure_score: number | null
   resilience_score: number | null
   gov_investment_score: number | null
+  momentum_score: number | null
+  momentum_phase: MomentumPhase | null
+  growth_yield_quadrant: GrowthYieldQuadrant | null
+  neighborhood_signal: NeighborhoodSignal | null
+  scarcity_score: number | null
 }
 
 export interface RankingsResponse {

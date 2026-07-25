@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
+from datetime import datetime, timezone
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.db.models import ABSCEntensMetrics, Base, SA2Region, SuburbScore
+from app.db.models import ABSCEntensMetrics, Base, PropertySale, SA2Region, SuburbMarketStats, SuburbScore
 from app.jobs.backfill_scores import backfill_scores
 
 _CODES = [f"2000{i}" for i in range(1, 6)]  # "20001" ... "20005"
@@ -121,6 +123,54 @@ async def test_updated_at_advances_on_rerun():
         assert report2.updated == 5
         if first_updated and second_updated:
             assert second_updated >= first_updated
+    finally:
+        await engine.dispose()
+
+
+async def _build_engine_with_momentum_data():
+    """20001 has two accelerating neighbors (20002, 20003) — enough known
+    neighbors to clear summarize_neighborhood_momentum's 2-neighbor minimum
+    for a signal. 20004 has census but no suburb_market_stats at all, to
+    cover the "no PropRadar coverage yet" branch in the same fixture."""
+    engine, Factory = await _build_engine()
+    async with Factory() as db:
+        r1 = (await db.execute(select(SA2Region).where(SA2Region.sa2_code == "20001"))).scalar_one()
+        r1.adjacent_sa2_codes = ["20002", "20003"]
+
+        for code in ("20001", "20002", "20003"):
+            db.add(SuburbMarketStats(
+                id=f"QLD-{code}-2026-07", sa2_code=code, suburb_name=f"Suburb {code}", state="QLD", period="2026-07",
+                growth_house_1y_pct=15.0, gross_yield_house_pct=5.0, heat_score_house=90.0,
+            ))
+            db.add(PropertySale(
+                id=f"sale-{code}", sa2_code=code, address="1 Test St", state="QLD",
+                sold_price=500_000, sold_date="2026-06-15", source="propradar",
+                fetched_at=datetime.now(timezone.utc),
+            ))
+        await db.commit()
+    return engine, Factory
+
+
+@pytest.mark.asyncio
+async def test_momentum_fields_populated_when_market_data_present():
+    engine, Factory = await _build_engine_with_momentum_data()
+    try:
+        async with Factory() as db:
+            await backfill_scores(db, year=2021)
+
+        async with Factory() as db:
+            score1 = await db.get(SuburbScore, "20001")
+            assert score1.momentum_phase == "accelerating"
+            assert score1.momentum_score is not None
+            assert score1.growth_yield_quadrant == "hot"
+            # Both neighbors (20002, 20003) are also accelerating -> spillover signal
+            assert score1.neighborhood_signal == "surrounded_by_acceleration"
+
+            # 20004 has census but no suburb_market_stats -> momentum fields stay None
+            score4 = await db.get(SuburbScore, "20004")
+            assert score4.momentum_phase is None
+            assert score4.momentum_score is None
+            assert score4.growth_yield_quadrant is None
     finally:
         await engine.dispose()
 

@@ -172,9 +172,18 @@ class SuburbScore(Base):
     resilience_score = Column(Float, nullable=True)
     gov_investment_score = Column(Float, nullable=True)
     risk_flags = Column(JSON, nullable=True)
+    momentum_score = Column(Float, nullable=True, comment="-100..100, from app.core.momentum.compute_momentum — first real suburb under this SA2, null if no suburb_market_stats coverage")
+    momentum_phase = Column(Text, nullable=True, comment="accelerating | steady | cooling")
+    growth_yield_quadrant = Column(Text, nullable=True, comment="hot | growth_play | cash_flow_play | avoid, from app.core.momentum.classify_growth_yield_quadrant")
+    neighborhood_signal = Column(Text, nullable=True, comment="surrounded_by_acceleration | surrounded_by_cooling | null, from adjacent SA2s' momentum_phase")
+    scarcity_score = Column(Float, nullable=True, comment="0-100, from app.core.momentum.compute_supply_scarcity — same value already folded into momentum_score, persisted separately so it's independently sortable/filterable (Phase 3 Task 3.4)")
     updated_at = Column(DateTime, nullable=True)
 
-    __table_args__ = (Index("ix_suburb_scores_investment_desc", "investment_score"),)
+    __table_args__ = (
+        Index("ix_suburb_scores_investment_desc", "investment_score"),
+        Index("ix_suburb_scores_momentum_desc", "momentum_score"),
+        Index("ix_suburb_scores_scarcity_desc", "scarcity_score"),
+    )
 
 
 class PropertySale(Base):
@@ -204,6 +213,50 @@ class PropertySale(Base):
 
     __table_args__ = (
         Index("ix_property_sales_sa2_beds_price_date", "sa2_code", "bedrooms", "sold_price", "sold_date"),
+    )
+
+
+class CurrentListing(Base):
+    """Currently for-sale property listings tied to an SA2, from PropRadar's
+    GET /v1/suburbs/{state}/{suburb}/listings — ungated at our "hobby" plan
+    tier (unlike /sold's sibling market_cycle/price_history endpoints).
+
+    Unlike PropertySale (an append-only log of historical sold facts), this
+    is a live snapshot: a listing that sells or is withdrawn simply stops
+    being touched by future fetches rather than being deleted (per the
+    guardrail against deleting data — hide/age out via `fetched_at`
+    freshness in the reading service, never DROP). `id` hashes PropRadar's
+    own `property_id` so a still-listed property upserts the same row on
+    re-fetch instead of duplicating.
+
+    No `days_on_market` field in the API response body itself (only
+    `min_days_on_market`/`max_days_on_market` as query *filters* — PropRadar
+    computes it server-side but doesn't expose the raw number at this plan
+    tier) — `listed_date` (from the response's `added_at`) is stored instead,
+    so a reader can derive days-on-market as (today - listed_date).
+    """
+
+    __tablename__ = "current_listings"
+
+    id = Column(Text, primary_key=True, comment="hash of propradar property_id")
+    sa2_code = Column(Text, ForeignKey("sa2_regions.sa2_code"), nullable=False)
+    address = Column(Text, nullable=True)
+    suburb_name = Column(Text, nullable=True)
+    state = Column(Text, nullable=True)
+    postcode = Column(Text, nullable=True)
+    bedrooms = Column(Integer, nullable=True)
+    bathrooms = Column(Integer, nullable=True)
+    parking = Column(Integer, nullable=True)
+    property_type = Column(Text, nullable=True, comment="house | apartment | townhouse | ...")
+    asking_price_low = Column(Integer, nullable=True)
+    asking_price_high = Column(Integer, nullable=True, comment="Equal to asking_price_low for a fixed-price listing; both null for price-on-application/contact-agent listings")
+    sale_type = Column(Text, nullable=True, comment="e.g. 'Private Sale', 'Auction'")
+    listed_date = Column(Text, nullable=True, comment="ISO date PropRadar first tracked this listing (from 'added_at') — a proxy for when it went to market, not necessarily the portal's own listed date")
+    source = Column(Text, nullable=False, default="propradar")
+    fetched_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_current_listings_sa2", "sa2_code"),
     )
 
 

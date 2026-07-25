@@ -18,6 +18,8 @@ _VALID_SCORE_TYPES = frozenset({
     "housing_pressure_score",
     "resilience_score",
     "gov_investment_score",
+    "momentum_score",
+    "scarcity_score",
 })
 
 
@@ -56,6 +58,9 @@ async def get_rankings(
                 "sa2_name": name,
                 "state": state,
                 "distance_to_cbd_km": distance_to_cbd_km,
+                "momentum_phase": score.momentum_phase,
+                "growth_yield_quadrant": score.growth_yield_quadrant,
+                "neighborhood_signal": score.neighborhood_signal,
                 **{c: getattr(score, c) for c in _VALID_SCORE_TYPES},
             }
             for i, (score, name, state, distance_to_cbd_km) in enumerate(rows)

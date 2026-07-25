@@ -47,3 +47,15 @@ def test_default_sort_and_limit_when_no_cues_present():
     assert f.sort_by == "population"
     assert f.sort_dir == "desc"
     assert f.limit == 10
+
+
+def test_bare_suburb_name_carried_through_as_candidate():
+    f = parse_with_rules("Algester")
+    assert f.suburb_name == "Algester"
+    assert f.city is None
+    assert f.state is None
+
+
+def test_suburb_name_candidate_cleared_when_a_structured_signal_matches():
+    f = parse_with_rules("Brisbane suburbs within 10km of CBD")
+    assert f.suburb_name is None

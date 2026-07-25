@@ -30,3 +30,27 @@ def test_ask_unmatched_filter_returns_message(client) -> None:
     body = resp.json()
     assert body["results"] == []
     assert body["message"] is not None
+
+
+def test_ask_bare_suburb_name_returns_that_suburb_not_generic_results(client) -> None:
+    # Regression: "Cronulla" (no city/state/distance/top-N cue) used to fall
+    # straight through to an unfiltered "top by population" query, silently
+    # ignoring the name entirely and surfacing unrelated suburbs.
+    resp = client.post("/search/ask", json={"prompt": "Cronulla"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["parsed_filter"]["suburb_name"] == "Cronulla"
+    assert len(body["results"]) == 1
+    assert body["results"][0]["sa2_code"] == "22625"
+    assert body["message"] is None
+
+
+def test_ask_suburb_name_candidate_with_no_match_falls_back_to_generic_results(client) -> None:
+    # No real suburb matches this, so it should behave exactly like the
+    # pre-existing "unmatched generic prompt" case (test above), not error
+    # or return an empty result set.
+    resp = client.post("/search/ask", json={"prompt": "zzznotarealsuburbzzz"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["parsed_filter"]["suburb_name"] == "zzznotarealsuburbzzz"
+    assert len(body["results"]) > 0

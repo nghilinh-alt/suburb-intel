@@ -106,3 +106,42 @@ def test_filter_options_returns_distinct_states(client) -> None:
     assert response.status_code == 200
     body = response.json()
     assert set(body["states"]) >= {"QLD", "NSW", "VIC"}
+
+
+def test_filter_response_includes_momentum_fields(client) -> None:
+    response = client.get(
+        "/search/filter",
+        params={"min_median_income": 101999, "max_median_income": 102001},
+    )
+    assert response.status_code == 200
+    chermside = next(r for r in response.json()["results"] if r["sa2_code"] == "47002")
+    for field in ("momentum_score", "momentum_phase", "growth_yield_quadrant", "neighborhood_signal"):
+        assert field in chermside
+    # Seeded SuburbScore rows don't set momentum fields, so they're null.
+    assert chermside["momentum_phase"] is None
+
+
+def test_filter_by_momentum_phase_excludes_suburbs_without_that_phase(client) -> None:
+    # Seeded suburbs have no momentum_phase set at all, so filtering for a
+    # real phase value must exclude them (not error, not match everything).
+    response = client.get(
+        "/search/filter",
+        params={"min_median_income": 101999, "max_median_income": 102001, "momentum_phase": "accelerating"},
+    )
+    assert response.status_code == 200
+    assert "47002" not in _codes(response.json())
+
+
+def test_filter_by_invalid_momentum_phase_returns_422(client) -> None:
+    response = client.get("/search/filter", params={"momentum_phase": "bogus"})
+    assert response.status_code == 422
+
+
+def test_filter_by_invalid_growth_yield_quadrant_returns_422(client) -> None:
+    response = client.get("/search/filter", params={"growth_yield_quadrant": "bogus"})
+    assert response.status_code == 422
+
+
+def test_filter_sortable_by_momentum_score(client) -> None:
+    response = client.get("/search/filter", params={"sort_by": "momentum_score", "limit": 100})
+    assert response.status_code == 200  # doesn't error even though it's an unfamiliar sort column

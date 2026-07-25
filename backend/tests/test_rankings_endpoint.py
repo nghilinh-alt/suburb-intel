@@ -61,7 +61,20 @@ class TestGetRankings:
         for field in (
             "investment_score", "demographic_score", "economic_score",
             "housing_pressure_score", "resilience_score", "gov_investment_score",
+            "momentum_score",
         ):
+            assert field in row
+
+    def test_momentum_score_is_a_valid_sort_type(self, client):
+        resp = client.get("/rankings/?score_type=momentum_score&limit=10")
+        assert resp.status_code == 200
+        assert resp.json()["count"] >= 2
+
+    def test_momentum_descriptive_fields_present_in_row(self, client):
+        resp = client.get("/rankings/?limit=10")
+        assert resp.status_code == 200
+        row = resp.json()["rankings"][0]
+        for field in ("momentum_phase", "growth_yield_quadrant", "neighborhood_signal"):
             assert field in row
 
 

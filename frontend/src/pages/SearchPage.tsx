@@ -1,14 +1,32 @@
 import { FormEvent, ReactNode, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Card, FunnelStep } from '../components/primitives'
 import {
   askSearch,
   filterSuburbs,
   getFilterOptions,
+  searchSuburbs,
   type AskSearchResponse,
   type FilteredSuburb,
+  type GrowthYieldQuadrant,
+  type MomentumPhase,
   type SuburbFilters,
+  type SuburbSearchResult,
 } from '../lib/api'
-import { colors } from '../lib/theme'
+import { colors, fonts } from '../lib/theme'
+
+const MOMENTUM_PHASE_OPTIONS: { value: MomentumPhase; label: string }[] = [
+  { value: 'accelerating', label: 'Accelerating' },
+  { value: 'steady', label: 'Steady' },
+  { value: 'cooling', label: 'Cooling' },
+]
+
+const QUADRANT_OPTIONS: { value: GrowthYieldQuadrant; label: string }[] = [
+  { value: 'hot', label: 'Hot (growth + yield)' },
+  { value: 'growth_play', label: 'Growth play' },
+  { value: 'cash_flow_play', label: 'Cash-flow play' },
+  { value: 'avoid', label: 'Avoid' },
+]
 
 const EXAMPLE_PROMPTS = [
   'Brisbane suburbs within 10km of CBD',
@@ -29,6 +47,7 @@ const SORT_OPTIONS: { value: string; label: string }[] = [
   { value: 'investment_score', label: 'Investment Score' },
   { value: 'economic_score', label: 'Economic Score' },
   { value: 'demographic_score', label: 'Demographic Score' },
+  { value: 'momentum_score', label: 'Momentum' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -62,6 +81,9 @@ interface DraftFilters {
   minDemographicScore: string
   minGrossYieldHousePct: string
   maxVacancyRatePct: string
+  momentumPhase: MomentumPhase | ''
+  growthYieldQuadrant: GrowthYieldQuadrant | ''
+  minScarcityScore: string
 }
 
 const EMPTY_DRAFT: DraftFilters = {
@@ -90,6 +112,9 @@ const EMPTY_DRAFT: DraftFilters = {
   minDemographicScore: '',
   minGrossYieldHousePct: '',
   maxVacancyRatePct: '',
+  momentumPhase: '',
+  growthYieldQuadrant: '',
+  minScarcityScore: '',
 }
 
 // Large-value filter fields are entered in millions ($M) or thousands (k) in
@@ -127,6 +152,9 @@ function draftToFilters(d: DraftFilters): SuburbFilters {
     min_demographic_score: num(d.minDemographicScore),
     min_gross_yield_house_pct: num(d.minGrossYieldHousePct),
     max_vacancy_rate_pct: num(d.maxVacancyRatePct),
+    momentum_phase: d.momentumPhase || undefined,
+    growth_yield_quadrant: d.growthYieldQuadrant || undefined,
+    min_scarcity_score: num(d.minScarcityScore),
   }
 }
 
@@ -155,6 +183,12 @@ type AskSearchState =
   | { status: 'error'; message: string }
   | { status: 'ready'; data: AskSearchResponse }
 
+type NameSearchState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; results: SuburbSearchResult[] }
+
 export default function SearchPage() {
   const [availableStates, setAvailableStates] = useState<string[]>([])
   const [draft, setDraft] = useState<DraftFilters>(EMPTY_DRAFT)
@@ -165,6 +199,9 @@ export default function SearchPage() {
 
   const [prompt, setPrompt] = useState('')
   const [askState, setAskState] = useState<AskSearchState>({ status: 'idle' })
+
+  const [nameQuery, setNameQuery] = useState('')
+  const [nameState, setNameState] = useState<NameSearchState>({ status: 'idle' })
 
   useEffect(() => {
     getFilterOptions()
@@ -216,6 +253,34 @@ export default function SearchPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  async function runNameSearch(q: string) {
+    if (!q.trim()) {
+      setNameState({ status: 'idle' })
+      return
+    }
+    setNameState({ status: 'loading' })
+    try {
+      const data = await searchSuburbs(q)
+      const results = Array.isArray(data) ? data : [data]
+      setNameState({ status: 'ready', results })
+    } catch (err) {
+      setNameState({
+        status: 'error',
+        message: err instanceof Error ? err.message : 'Search failed.',
+      })
+    }
+  }
+
+  function handleNameSubmit(e: FormEvent) {
+    e.preventDefault()
+    runNameSearch(nameQuery)
+  }
+
+  function clearNameSearch() {
+    setNameQuery('')
+    setNameState({ status: 'idle' })
+  }
+
   async function runAskSearch(p: string) {
     if (!p.trim()) return
     setAskState({ status: 'loading' })
@@ -252,11 +317,24 @@ export default function SearchPage() {
       }}
     >
       <div style={{ marginBottom: '24px' }}>
+        <FunnelStep step={1} total={3} label="Macro filter" />
         <h1 style={{ fontSize: '32px', margin: 0, color: colors.textPrimary }}>Search Suburbs</h1>
         <p style={{ color: colors.textMuted, fontSize: '14px', marginTop: '6px' }}>
-          Filter by any metric we track, then drill into a suburb's full investment report.
+          Narrow the pool by state, price, momentum, and supply scarcity — then head to{' '}
+          <Link to="/rankings" style={{ color: colors.pink, fontWeight: 600 }}>
+            Rankings
+          </Link>{' '}
+          for a momentum/pressure-sorted shortlist, or click a suburb here for the full deep-dive report.
         </p>
       </div>
+
+      <NameSearchBar
+        query={nameQuery}
+        setQuery={setNameQuery}
+        state={nameState}
+        onSubmit={handleNameSubmit}
+        onClear={clearNameSearch}
+      />
 
       <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: '24px', alignItems: 'start' }}>
         <FilterSidebar
@@ -407,6 +485,110 @@ export default function SearchPage() {
 }
 
 // ---------------------------------------------------------------------------
+// Name / SA2-code quick search
+// ---------------------------------------------------------------------------
+
+function NameSearchBar({
+  query,
+  setQuery,
+  state,
+  onSubmit,
+  onClear,
+}: {
+  query: string
+  setQuery: (v: string) => void
+  state: NameSearchState
+  onSubmit: (e: FormEvent) => void
+  onClear: () => void
+}) {
+  return (
+    <Card style={{ padding: '16px 20px', marginBottom: '24px' }}>
+      <form onSubmit={onSubmit} style={{ display: 'flex', gap: '10px' }}>
+        <div style={{ position: 'relative', flex: 1 }}>
+          <SearchIcon />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by suburb name or enter SA2 code..."
+            style={{ ...textInputStyle, width: '100%', paddingLeft: '38px' }}
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={onClear}
+              aria-label="Clear search"
+              style={{
+                position: 'absolute',
+                right: '10px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: colors.textMuted,
+                display: 'flex',
+                padding: 0,
+              }}
+            >
+              <XIcon />
+            </button>
+          )}
+        </div>
+        <button type="submit" style={primaryButtonStyle}>
+          Search
+        </button>
+      </form>
+
+      {state.status === 'loading' && (
+        <p style={{ color: colors.textMuted, fontSize: '13px', margin: '12px 0 0 0' }}>Searching...</p>
+      )}
+      {state.status === 'error' && (
+        <p style={{ color: '#B91C1C', fontSize: '13px', margin: '12px 0 0 0' }}>{state.message}</p>
+      )}
+      {state.status === 'ready' && (
+        <div style={{ display: 'grid', gap: '8px', marginTop: '12px' }}>
+          {state.results.map((r) => (
+            <Link key={r.sa2_code} to={`/suburb/${r.sa2_code}`} style={{ textDecoration: 'none' }}>
+              <div style={askResultCardStyle}>
+                <div>
+                  <strong style={{ color: colors.textPrimary }}>{r.sa2_name}</strong>{' '}
+                  <span style={{ color: colors.textMuted }}>{r.state}</span>
+                </div>
+                <div style={{ color: colors.textMuted, fontSize: '13px' }}>
+                  {[
+                    r.distance_to_cbd_km != null ? `${r.distance_to_cbd_km.toFixed(1)} km to CBD` : null,
+                    r.population != null ? `Pop ${r.population.toLocaleString()}` : null,
+                    r.median_income != null ? `Income $${r.median_income.toLocaleString()}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function SearchIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }}
+    >
+      <circle cx="7" cy="7" r="5.25" stroke={colors.textMuted} strokeWidth="1.4" />
+      <path d="M11 11L14.5 14.5" stroke={colors.textMuted} strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Filter sidebar
 // ---------------------------------------------------------------------------
 
@@ -477,6 +659,27 @@ function FilterSidebar({
           ))}
         </div>
       </FilterGroup>
+
+      <SelectFilter
+        label="Momentum"
+        hint="Derived in-house from sale velocity, price growth, supply scarcity, and heat score."
+        value={draft.momentumPhase}
+        onChange={(v) => set('momentumPhase', v as MomentumPhase | '')}
+        options={MOMENTUM_PHASE_OPTIONS}
+      />
+      <SelectFilter
+        label="Growth / Yield Quadrant"
+        hint="Where this suburb sits vs the market median growth and yield right now."
+        value={draft.growthYieldQuadrant}
+        onChange={(v) => set('growthYieldQuadrant', v as GrowthYieldQuadrant | '')}
+        options={QUADRANT_OPTIONS}
+      />
+      <MinFilter
+        label="Supply Scarcity"
+        hint="0-100 score combining stock-on-market %, inventory months, and building approvals — higher means less for-sale supply relative to demand."
+        value={draft.minScarcityScore}
+        onChange={(v) => set('minScarcityScore', v)}
+      />
 
       <RangeFilter
         label="Median House Price"
@@ -729,6 +932,38 @@ function MaxFilter({
   )
 }
 
+function SelectFilter<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+  hint,
+}: {
+  label: string
+  value: T | ''
+  onChange: (v: T | '') => void
+  options: { value: T; label: string }[]
+  hint?: string
+}) {
+  return (
+    <FilterGroup label={label}>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as T | '')}
+        style={{ ...selectStyle, width: '100%' }}
+      >
+        <option value="">All</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      {hint && <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '6px' }}>{hint}</div>}
+    </FilterGroup>
+  )
+}
+
 function NumberBox({
   value,
   onChange,
@@ -840,6 +1075,7 @@ function SuburbTile({ suburb }: { suburb: FilteredSuburb }) {
                 padding: '4px 10px',
                 fontSize: '12px',
                 fontWeight: 700,
+                fontFamily: fonts.mono,
                 whiteSpace: 'nowrap',
               }}
             >
@@ -848,12 +1084,21 @@ function SuburbTile({ suburb }: { suburb: FilteredSuburb }) {
           )}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
           <TileStat label="Median House" value={fmtCurrency(suburb.median_house_price)} />
           <TileStat label="Population" value={fmtNum(suburb.population)} />
           <TileStat label="Weekly Rent" value={fmtCurrency(suburb.median_rent_weekly)} />
+          <TileStat label="Gross Yield" value={fmtPct(suburb.gross_yield_house_pct)} />
+          <TileStat label="Days on Mkt" value={fmtDays(suburb.days_on_market)} />
           <TileStat label="To CBD" value={fmtKm(suburb.distance_to_cbd_km)} />
         </div>
+
+        {(suburb.momentum_phase || suburb.growth_yield_quadrant) && (
+          <div style={{ display: 'flex', gap: '6px', marginTop: '10px', flexWrap: 'wrap' }}>
+            {suburb.momentum_phase && <MomentumTag phase={suburb.momentum_phase} />}
+            {suburb.growth_yield_quadrant && <QuadrantTag quadrant={suburb.growth_yield_quadrant} />}
+          </div>
+        )}
 
         {suburb.pop_growth_5yr_pct != null && (
           <div style={{ marginTop: '10px', fontSize: '12px', color: colors.green, fontWeight: 600 }}>
@@ -869,9 +1114,38 @@ function TileStat({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <div style={{ fontSize: '11px', color: colors.textMuted }}>{label}</div>
-      <div style={{ fontSize: '13px', fontWeight: 600, color: colors.textPrimary }}>{value}</div>
+      <div style={{ fontSize: '13px', fontWeight: 600, color: colors.textPrimary, fontFamily: fonts.mono }}>{value}</div>
     </div>
   )
+}
+
+const MOMENTUM_TAG_CONFIG: Record<string, { arrow: string; label: string; bg: string; fg: string }> = {
+  accelerating: { arrow: '▲', label: 'Accelerating', bg: colors.greenLight, fg: colors.green },
+  steady: { arrow: '→', label: 'Steady', bg: colors.blueLight, fg: colors.blue },
+  cooling: { arrow: '▼', label: 'Cooling', bg: colors.amberLight, fg: colors.amber },
+}
+
+function MomentumTag({ phase }: { phase: string }) {
+  const config = MOMENTUM_TAG_CONFIG[phase]
+  if (!config) return null
+  return (
+    <span style={{ ...tagStyle, backgroundColor: config.bg, color: config.fg }}>
+      {config.arrow} {config.label}
+    </span>
+  )
+}
+
+const QUADRANT_TAG_LABELS: Record<string, string> = {
+  hot: 'Hot',
+  growth_play: 'Growth play',
+  cash_flow_play: 'Cash-flow play',
+  avoid: 'Avoid',
+}
+
+function QuadrantTag({ quadrant }: { quadrant: string }) {
+  const label = QUADRANT_TAG_LABELS[quadrant]
+  if (!label) return null
+  return <span style={{ ...tagStyle, backgroundColor: colors.pageBg, color: colors.textSecondary }}>{label}</span>
 }
 
 function Pagination({
@@ -909,38 +1183,6 @@ function Pagination({
 }
 
 // ---------------------------------------------------------------------------
-// Shared primitives
-// ---------------------------------------------------------------------------
-
-function Card({
-  children,
-  style,
-  hoverable,
-}: {
-  children: ReactNode
-  style?: React.CSSProperties
-  hoverable?: boolean
-}) {
-  const [isHover, setIsHover] = useState(false)
-  return (
-    <div
-      onMouseEnter={() => hoverable && setIsHover(true)}
-      onMouseLeave={() => hoverable && setIsHover(false)}
-      style={{
-        backgroundColor: colors.cardBg,
-        border: `1px solid ${isHover ? colors.pink : colors.border}`,
-        borderRadius: '12px',
-        boxShadow: isHover ? '0 4px 12px rgba(0,0,0,0.08)' : '0 1px 2px rgba(0,0,0,0.04)',
-        padding: '24px',
-        ...style,
-      }}
-    >
-      {children}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Formatting
 // ---------------------------------------------------------------------------
 
@@ -952,6 +1194,12 @@ function fmtNum(v: number | null): string {
 }
 function fmtKm(v: number | null): string {
   return v == null ? '—' : `${v.toFixed(1)} km`
+}
+function fmtPct(v: number | null): string {
+  return v == null ? '—' : `${v.toFixed(1)}%`
+}
+function fmtDays(v: number | null): string {
+  return v == null ? '—' : `${Math.round(v)} days`
 }
 
 // ---------------------------------------------------------------------------
@@ -1042,6 +1290,14 @@ const chipStyle: React.CSSProperties = {
   borderRadius: '999px',
   fontSize: '12px',
   border: `1px solid ${colors.border}`,
+}
+
+const tagStyle: React.CSSProperties = {
+  display: 'inline-block',
+  fontSize: '11px',
+  fontWeight: 600,
+  padding: '3px 9px',
+  borderRadius: '999px',
 }
 
 const askResultCardStyle: React.CSSProperties = {

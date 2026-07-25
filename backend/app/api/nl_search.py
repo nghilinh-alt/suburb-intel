@@ -39,7 +39,17 @@ class AskRequest(BaseModel):
 @router.post("/ask")
 async def ask_search(body: AskRequest, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     parsed = parse_with_rules(body.prompt)
-    results = await _run_query(db, parsed)
+
+    # A prompt that didn't match any structured pattern (city/state/distance/
+    # top-N/ranking) is carried through as `suburb_name` — try it as a direct
+    # name lookup first (e.g. "Algester") before falling back to the
+    # generic, unfiltered listing. If it matches nothing, `results` stays
+    # empty and we fall through to the same generic query as before.
+    results: List[Dict[str, Any]] = []
+    if parsed.suburb_name:
+        results = await _lookup_by_suburb_name(db, parsed.suburb_name, limit=parsed.limit)
+    if not results:
+        results = await _run_query(db, parsed)
 
     message: Optional[str] = None
     if not results:
@@ -55,11 +65,8 @@ async def ask_search(body: AskRequest, db: AsyncSession = Depends(get_db)) -> Di
     }
 
 
-async def _run_query(db: AsyncSession, parsed: SuburbSearchFilter) -> List[Dict[str, Any]]:
-    order_col = _SORT_COLUMNS[parsed.sort_by]
-    order_expr = order_col.asc().nulls_last() if parsed.sort_dir == "asc" else order_col.desc().nulls_last()
-
-    stmt = (
+def _base_select():
+    return (
         select(
             SA2Region.sa2_code,
             SA2Region.sa2_name,
@@ -76,19 +83,10 @@ async def _run_query(db: AsyncSession, parsed: SuburbSearchFilter) -> List[Dict[
             & (ABSCEntensMetrics.year == _CENSUS_YEAR),
         )
         .outerjoin(SuburbScore, SuburbScore.sa2_code == SA2Region.sa2_code)
-        .order_by(order_expr)
-        .limit(parsed.limit)
     )
 
-    if parsed.state:
-        stmt = stmt.where(SA2Region.state == parsed.state)
-    if parsed.max_distance_to_cbd_km is not None:
-        stmt = stmt.where(
-            SA2Region.distance_to_cbd_km.isnot(None),
-            SA2Region.distance_to_cbd_km <= parsed.max_distance_to_cbd_km,
-        )
 
-    rows = (await db.execute(stmt)).all()
+def _rows_to_results(rows) -> List[Dict[str, Any]]:
     return [
         {
             "sa2_code": sa2_code,
@@ -101,3 +99,30 @@ async def _run_query(db: AsyncSession, parsed: SuburbSearchFilter) -> List[Dict[
         }
         for sa2_code, sa2_name, state, distance_to_cbd_km, population, median_income, investment_score in rows
     ]
+
+
+async def _lookup_by_suburb_name(db: AsyncSession, name: str, *, limit: int) -> List[Dict[str, Any]]:
+    """Case-insensitive partial-name match, same pattern as search.py's
+    `_get_suburbs_by_name` — kept separate rather than imported since this
+    router intentionally has no dependency on search.py."""
+    stmt = _base_select().where(SA2Region.sa2_name.ilike(f"%{name}%")).order_by(SA2Region.sa2_name).limit(limit)
+    rows = (await db.execute(stmt)).all()
+    return _rows_to_results(rows)
+
+
+async def _run_query(db: AsyncSession, parsed: SuburbSearchFilter) -> List[Dict[str, Any]]:
+    order_col = _SORT_COLUMNS[parsed.sort_by]
+    order_expr = order_col.asc().nulls_last() if parsed.sort_dir == "asc" else order_col.desc().nulls_last()
+
+    stmt = _base_select().order_by(order_expr).limit(parsed.limit)
+
+    if parsed.state:
+        stmt = stmt.where(SA2Region.state == parsed.state)
+    if parsed.max_distance_to_cbd_km is not None:
+        stmt = stmt.where(
+            SA2Region.distance_to_cbd_km.isnot(None),
+            SA2Region.distance_to_cbd_km <= parsed.max_distance_to_cbd_km,
+        )
+
+    rows = (await db.execute(stmt)).all()
+    return _rows_to_results(rows)

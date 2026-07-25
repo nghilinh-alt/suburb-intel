@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Card, FunnelStep } from '../components/primitives'
 import { getRankings, type RankedSuburb, type RankingsResponse, type ScoreType } from '../lib/api'
-import { colors } from '../lib/theme'
+import { colors, fonts } from '../lib/theme'
 
 const SCORE_TABS: { value: ScoreType; label: string }[] = [
+  { value: 'momentum_score', label: 'Momentum' },
+  { value: 'scarcity_score', label: 'Supply Scarcity' },
   { value: 'investment_score', label: 'Investment' },
   { value: 'economic_score', label: 'Economic' },
   { value: 'demographic_score', label: 'Demographic' },
@@ -12,13 +15,20 @@ const SCORE_TABS: { value: ScoreType; label: string }[] = [
   { value: 'gov_investment_score', label: 'Government Investment' },
 ]
 
+const QUADRANT_LABELS: Record<string, string> = {
+  hot: 'Hot',
+  growth_play: 'Growth play',
+  cash_flow_play: 'Cash-flow play',
+  avoid: 'Avoid',
+}
+
 type State =
   | { status: 'loading' }
   | { status: 'error'; message: string }
   | { status: 'ready'; data: RankingsResponse }
 
 export default function RankingsPage() {
-  const [scoreType, setScoreType] = useState<ScoreType>('investment_score')
+  const [scoreType, setScoreType] = useState<ScoreType>('momentum_score')
   const [state, setState] = useState<State>({ status: 'loading' })
 
   useEffect(() => {
@@ -43,9 +53,15 @@ export default function RankingsPage() {
     >
       <div style={{ maxWidth: '900px', margin: '0 auto' }}>
         <div style={{ marginBottom: '24px' }}>
+          <FunnelStep step={2} total={3} label="Shortlist" />
           <h1 style={{ fontSize: '32px', margin: 0, color: colors.textPrimary }}>Top Suburbs</h1>
           <p style={{ color: colors.textMuted, fontSize: '14px', marginTop: '6px' }}>
-            Ranked by composite score, computed from census, economic, and housing-pressure signals.
+            Ranked by momentum, supply/demand pressure, or composite score — every row shows acceleration and growth/yield
+            positioning regardless of which you sort by. Click a suburb for the full deep-dive report, or head back to{' '}
+            <Link to="/" style={{ color: colors.pink, fontWeight: 600 }}>
+              Search
+            </Link>{' '}
+            to refine the macro filters.
           </p>
         </div>
 
@@ -101,6 +117,10 @@ export default function RankingsPage() {
 function RankRow({ suburb, scoreType }: { suburb: RankedSuburb; scoreType: ScoreType }) {
   const score = suburb[scoreType]
   const isTop = suburb.rank === 1
+  const isMomentum = scoreType === 'momentum_score'
+  const scoreLabel = isMomentum && score != null && score > 0 ? `+${score.toFixed(1)}` : score?.toFixed(1)
+  const scoreUnitLabel = isMomentum ? 'momentum' : scoreType === 'scarcity_score' ? 'scarcity' : 'score'
+
   return (
     <Link to={`/suburb/${suburb.sa2_code}`} style={{ textDecoration: 'none' }}>
       <Card
@@ -117,6 +137,7 @@ function RankRow({ suburb, scoreType }: { suburb: RankedSuburb; scoreType: Score
             style={{
               fontSize: '15px',
               fontWeight: 700,
+              fontFamily: fonts.mono,
               color: isTop ? colors.pink : colors.textMuted,
               width: '32px',
               textAlign: 'center',
@@ -135,32 +156,57 @@ function RankRow({ suburb, scoreType }: { suburb: RankedSuburb; scoreType: Score
               SA2: {suburb.sa2_code}
               {suburb.distance_to_cbd_km != null && ` · ${suburb.distance_to_cbd_km.toFixed(1)} km to CBD`}
             </p>
+            <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
+              <MomentumBadge phase={suburb.momentum_phase} />
+              {suburb.growth_yield_quadrant && (
+                <Badge tone="neutral">{QUADRANT_LABELS[suburb.growth_yield_quadrant]}</Badge>
+              )}
+            </div>
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: '28px', fontWeight: 700, color: colors.textPrimary }}>
-            {score != null ? score.toFixed(1) : '—'}
-          </div>
-          <span style={{ color: colors.textMuted, fontSize: '11px' }}>score</span>
+          <div style={{ fontSize: '28px', fontWeight: 700, color: colors.textPrimary, fontFamily: fonts.mono }}>{scoreLabel ?? '—'}</div>
+          <span style={{ color: colors.textMuted, fontSize: '11px' }}>{scoreUnitLabel}</span>
         </div>
       </Card>
     </Link>
   )
 }
 
-function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+function MomentumBadge({ phase }: { phase: RankedSuburb['momentum_phase'] }) {
+  if (!phase) return null
+  const config = {
+    accelerating: { arrow: '▲', label: 'Accelerating', tone: 'positive' as const },
+    steady: { arrow: '→', label: 'Steady', tone: 'neutral' as const },
+    cooling: { arrow: '▼', label: 'Cooling', tone: 'negative' as const },
+  }[phase]
   return (
-    <div
+    <Badge tone={config.tone}>
+      {config.arrow} {config.label}
+    </Badge>
+  )
+}
+
+function Badge({ children, tone }: { children: React.ReactNode; tone: 'positive' | 'negative' | 'neutral' }) {
+  const toneColors = {
+    positive: { bg: colors.greenLight, fg: colors.green },
+    negative: { bg: colors.amberLight, fg: colors.amber },
+    neutral: { bg: colors.blueLight, fg: colors.blue },
+  }[tone]
+  return (
+    <span
       style={{
-        backgroundColor: colors.cardBg,
-        border: `1px solid ${colors.border}`,
-        borderRadius: '12px',
-        boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-        padding: '24px',
-        ...style,
+        display: 'inline-block',
+        fontSize: '11px',
+        fontWeight: 600,
+        padding: '3px 9px',
+        borderRadius: '999px',
+        backgroundColor: toneColors.bg,
+        color: toneColors.fg,
       }}
     >
       {children}
-    </div>
+    </span>
   )
 }
+

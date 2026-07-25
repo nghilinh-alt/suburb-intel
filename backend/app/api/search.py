@@ -187,6 +187,9 @@ async def filter_suburbs(
     min_demographic_score: Optional[float] = Query(None),
     min_gross_yield_house_pct: Optional[float] = Query(None),
     max_vacancy_rate_pct: Optional[float] = Query(None),
+    momentum_phase: Optional[str] = Query(None, pattern="^(accelerating|steady|cooling)$"),
+    growth_yield_quadrant: Optional[str] = Query(None, pattern="^(hot|growth_play|cash_flow_play|avoid)$"),
+    min_scarcity_score: Optional[float] = Query(None, description="0-100 supply-scarcity score — higher means less for-sale supply relative to demand"),
     sort_by: str = Query("population"),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     limit: int = Query(20, ge=1, le=100),
@@ -221,6 +224,9 @@ async def filter_suburbs(
         min_demographic_score=min_demographic_score,
         min_gross_yield_house_pct=min_gross_yield_house_pct,
         max_vacancy_rate_pct=max_vacancy_rate_pct,
+        momentum_phase=momentum_phase,
+        growth_yield_quadrant=growth_yield_quadrant,
+        min_scarcity_score=min_scarcity_score,
     )
     page = await search_suburbs_filtered(db, filters, sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=offset)
     return {

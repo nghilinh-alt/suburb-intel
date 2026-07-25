@@ -58,6 +58,9 @@ class SuburbFilters:
     min_demographic_score: Optional[float] = None
     min_gross_yield_house_pct: Optional[float] = None
     max_vacancy_rate_pct: Optional[float] = None
+    momentum_phase: Optional[str] = None
+    growth_yield_quadrant: Optional[str] = None
+    min_scarcity_score: Optional[float] = None
 
 
 _DEFAULT_SORT = "population"
@@ -112,6 +115,11 @@ async def search_suburbs_filtered(
             SuburbScore.investment_score,
             SuburbScore.economic_score,
             SuburbScore.demographic_score,
+            SuburbScore.momentum_score,
+            SuburbScore.momentum_phase,
+            SuburbScore.growth_yield_quadrant,
+            SuburbScore.neighborhood_signal,
+            SuburbScore.scarcity_score,
             market_agg.c.avg_median_house_price,
             market_agg.c.avg_median_unit_price,
             market_agg.c.avg_days_on_market_house,
@@ -145,6 +153,8 @@ async def search_suburbs_filtered(
         "investment_score": SuburbScore.investment_score,
         "economic_score": SuburbScore.economic_score,
         "demographic_score": SuburbScore.demographic_score,
+        "momentum_score": SuburbScore.momentum_score,
+        "scarcity_score": SuburbScore.scarcity_score,
     }
     sort_col = sortable_columns.get(sort_by, sortable_columns[_DEFAULT_SORT])
     order = sort_col.asc().nulls_last() if sort_dir == "asc" else sort_col.desc().nulls_last()
@@ -214,6 +224,12 @@ def _apply_filters(stmt, filters: SuburbFilters, market_agg):
         stmt = stmt.where(market_agg.c.avg_gross_yield_house_pct >= f.min_gross_yield_house_pct)
     if f.max_vacancy_rate_pct is not None:
         stmt = stmt.where(market_agg.c.avg_vacancy_rate_pct <= f.max_vacancy_rate_pct)
+    if f.momentum_phase is not None:
+        stmt = stmt.where(SuburbScore.momentum_phase == f.momentum_phase)
+    if f.growth_yield_quadrant is not None:
+        stmt = stmt.where(SuburbScore.growth_yield_quadrant == f.growth_yield_quadrant)
+    if f.min_scarcity_score is not None:
+        stmt = stmt.where(SuburbScore.scarcity_score >= f.min_scarcity_score)
     return stmt
 
 
@@ -239,6 +255,11 @@ def _row_to_dict(row) -> Dict[str, Any]:
         "investment_score": row.investment_score,
         "economic_score": row.economic_score,
         "demographic_score": row.demographic_score,
+        "momentum_score": row.momentum_score,
+        "momentum_phase": row.momentum_phase,
+        "growth_yield_quadrant": row.growth_yield_quadrant,
+        "neighborhood_signal": row.neighborhood_signal,
+        "scarcity_score": row.scarcity_score,
         "gross_yield_house_pct": row.avg_gross_yield_house_pct,
         "vacancy_rate_pct": row.avg_vacancy_rate_pct,
     }

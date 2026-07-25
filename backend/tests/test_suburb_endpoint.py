@@ -17,6 +17,14 @@ def test_suburb_report_for_seeded_sa2(client) -> None:
     assert body["demographics"]["population"] == 28900
 
 
+def test_suburb_report_show_census_sections_defaults_true(client) -> None:
+    # Default must match pre-flag behaviour (everything visible) so adding
+    # this config doesn't silently change what's shown until deliberately flipped.
+    response = client.get("/suburb/47002")
+    assert response.status_code == 200
+    assert response.json()["show_census_sections"] is True
+
+
 def test_suburb_report_has_no_numeric_composite_scores(client) -> None:
     """Regression: the report used to expose a `scores` dict of 0-100
     composite numbers; the product now shows underlying data instead."""
@@ -32,6 +40,7 @@ def test_suburb_report_has_all_sections(client) -> None:
     body = response.json()
     for section in (
         "location",
+        "momentum",
         "property_market",
         "investment_outlook",
         "demographics",
@@ -55,6 +64,52 @@ def test_suburb_report_property_market_shape(client) -> None:
     assert pm["recent_sales_available"] is False  # no PropRadar data ingested yet
     assert pm["price_history"] == []  # no property_sales rows yet
     assert pm["land_size_breakdown"] == []  # no property_sales rows yet
+
+
+def test_suburb_report_momentum_sale_velocity_shape(client) -> None:
+    response = client.get("/suburb/47002")
+    assert response.status_code == 200
+    velocity = response.json()["momentum"]["sale_velocity"]
+    assert velocity["monthly_counts"] == []  # no property_sales rows yet
+    assert velocity["trend_pct"] is None
+
+
+def test_suburb_report_momentum_supply_scarcity_shape(client) -> None:
+    response = client.get("/suburb/47002")
+    assert response.status_code == 200
+    assert response.json()["momentum"]["supply_scarcity"] == []  # no suburb_market_stats rows yet
+
+
+def test_suburb_report_momentum_composite_shape(client) -> None:
+    response = client.get("/suburb/47002")
+    assert response.status_code == 200
+    assert response.json()["momentum"]["composite"] == []  # no suburb_market_stats rows yet
+
+
+def test_suburb_report_investment_snapshot_none_without_market_stats(client) -> None:
+    response = client.get("/suburb/47002")
+    assert response.status_code == 200
+    assert response.json()["investment_snapshot"] is None  # no suburb_market_stats rows yet
+
+
+def test_suburb_report_momentum_neighborhood_shape(client) -> None:
+    response = client.get("/suburb/47002")
+    assert response.status_code == 200
+    neighborhood = response.json()["momentum"]["neighborhood"]
+    assert neighborhood["total_neighbors"] == 0  # seeded SA2 has no adjacent_sa2_codes
+    assert neighborhood["signal"] is None
+
+
+def test_suburb_report_momentum_growth_yield_quadrant_shape(client) -> None:
+    response = client.get("/suburb/47002")
+    assert response.status_code == 200
+    assert response.json()["momentum"]["growth_yield_quadrant"] == []  # no suburb_market_stats rows yet
+
+
+def test_suburb_report_momentum_property_cycle_shape(client) -> None:
+    response = client.get("/suburb/47002")
+    assert response.status_code == 200
+    assert response.json()["momentum"]["property_cycle"] == []  # no suburb_market_stats rows yet
 
 
 def test_suburb_report_housing_by_house_type_shape(client) -> None:

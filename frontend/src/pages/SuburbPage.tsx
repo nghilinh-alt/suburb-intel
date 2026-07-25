@@ -1,7 +1,10 @@
-import { ReactNode, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { DonutChart, HorizontalBars, TrendLine } from '../components/Charts'
-import { colors } from '../lib/theme'
+import { ContextRuler, DonutChart, HorizontalBars, PropertyCycleClock, TrendLine, type CyclePosition } from '../components/Charts'
+import { Card, MetricWithInfo, MiniStat, Pill, Section, Stat, StatGrid } from '../components/primitives'
+import type { GrowthYieldQuadrant, MomentumPhase, NeighborhoodSignal } from '../lib/api'
+import { nationalMedians, nationalRanges } from '../lib/nationalBaselines'
+import { colors, fonts } from '../lib/theme'
 
 interface RecentSale {
   address: string | null
@@ -213,6 +216,95 @@ interface RegionalComparison {
   metrics: RegionalMetric[]
 }
 
+interface InvestmentHighlight {
+  label: string
+  format: 'text' | 'pct' | 'rate' | 'score' | 'days'
+  value: number | string | null
+  tone: 'positive' | 'neutral' | 'negative'
+}
+
+interface InvestmentSnapshot {
+  verdict: string | null
+  highlights: InvestmentHighlight[]
+}
+
+interface SaleVelocityMonthly {
+  period: string
+  count: number
+}
+
+interface SaleVelocity {
+  monthly_counts: SaleVelocityMonthly[]
+  recent_3mo_count: number
+  prior_3mo_count: number
+  trend_pct: number | null
+}
+
+interface ScarcityComponents {
+  stock_on_market_score: number | null
+  inventory_months_score: number | null
+  building_approvals_score: number | null
+}
+
+interface SupplyScarcityEntry {
+  suburb_name: string
+  scarcity_score: number | null
+  components: ScarcityComponents
+}
+
+interface MomentumSignalDetail {
+  signal: number | null
+  trend_pct?: number | null
+  growth_pct?: number | null
+  scarcity_score?: number | null
+  value?: number | null
+}
+
+interface MomentumComponents {
+  sale_velocity: MomentumSignalDetail
+  growth: MomentumSignalDetail
+  supply_scarcity: MomentumSignalDetail
+  heat_score: MomentumSignalDetail
+}
+
+interface MomentumCompositeEntry {
+  suburb_name: string
+  phase: MomentumPhase | null
+  momentum_score: number | null
+  components: MomentumComponents
+}
+
+interface NeighborhoodMomentum {
+  total_neighbors: number
+  counts: { accelerating: number; steady: number; cooling: number }
+  accelerating_pct: number | null
+  cooling_pct: number | null
+  signal: NeighborhoodSignal | null
+}
+
+interface GrowthYieldQuadrantEntry {
+  suburb_name: string
+  quadrant: GrowthYieldQuadrant | null
+  label: string | null
+}
+
+interface PropertyCycleEntry {
+  suburb_name: string
+  position: CyclePosition | null
+  label: string | null
+  angle_degrees: number | null
+  confidence: number | null
+}
+
+interface Momentum {
+  sale_velocity: SaleVelocity
+  supply_scarcity: SupplyScarcityEntry[]
+  composite: MomentumCompositeEntry[]
+  neighborhood: NeighborhoodMomentum
+  growth_yield_quadrant: GrowthYieldQuadrantEntry[]
+  property_cycle: PropertyCycleEntry[]
+}
+
 interface LocalPoiEntry {
   name: string
   group: string
@@ -234,11 +326,14 @@ interface SuburbReport {
   sa2_name: string | null
   state: string | null
   census_year: number
+  show_census_sections: boolean
   insight: string
+  investment_snapshot: InvestmentSnapshot | null
   risk_flags: string[]
   tags: string[]
   regional_comparison: RegionalComparison | null
   location: { distance_to_cbd_km: number | null }
+  momentum: Momentum
   market_stats: SuburbMarketStat[]
   rental_market: RentalMarketEntry[]
   property_market: PropertyMarket
@@ -287,6 +382,74 @@ function titleCase(s: string): string {
 function fmtTopPercent(percentile: number): string {
   return `Top ${Math.max(Math.round(100 - percentile), 1)}%`
 }
+function fmtSignal(v: number | null | undefined): string {
+  return v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}`
+}
+function fmtScore100(v: number | null | undefined): string {
+  return v == null ? '—' : `${Math.round(v)}/100`
+}
+function momentumPhaseTone(phase: MomentumPhase | null): 'green' | 'blue' | 'amber' {
+  if (phase === 'accelerating') return 'green'
+  if (phase === 'cooling') return 'amber'
+  return 'blue'
+}
+function momentumPhaseArrow(phase: MomentumPhase | null): string {
+  if (phase === 'accelerating') return '▲'
+  if (phase === 'cooling') return '▼'
+  return '→'
+}
+const QUADRANT_TAG_LABEL: Record<GrowthYieldQuadrant, string> = {
+  hot: 'Hot',
+  growth_play: 'Growth play',
+  cash_flow_play: 'Cash-flow play',
+  avoid: 'Avoid',
+}
+
+// ---------------------------------------------------------------------------
+// Plain-English section summaries (Phase 3 Task 3.2) — one-line, auto-
+// generated interpretations shown at the top of a section, before any chart
+// (WS2 §3-4). Each summary reuses signals already computed by the backend
+// (momentum phase, scarcity score, growth/yield quadrant) rather than
+// re-deriving new judgment calls in the frontend, except where noted — the
+// new population-growth thresholds below are this project's usual real-data
+// discipline: p25/p75 of ABSCEntensMetrics.pop_growth_proj_pct across 2,418
+// suburbs with a value (2026-07 snapshot: p25=1.46%, median=6.07%,
+// p75=12.40%), not guessed round numbers. Re-derive periodically the same
+// way as backend/app/core/momentum.py's thresholds.
+const _POP_GROWTH_STRONG_PCT = 12.4
+const _POP_GROWTH_WEAK_PCT = 1.46
+const _VACANCY_TIGHT_PCT = 0.62 // p25 of vacancy_rate_pct, n=2,697, 2026-07 snapshot
+const _VACANCY_ELEVATED_PCT = 1.5 // p75, same dataset
+
+function summarizeMomentum(phase: MomentumPhase | null, scarcityScore: number | null): string | null {
+  const supplyRead =
+    scarcityScore == null ? null : scarcityScore >= 60 ? 'Supply is tight' : scarcityScore <= 30 ? 'Supply is abundant' : 'Supply is balanced'
+  const demandRead =
+    phase === 'accelerating' ? 'demand is accelerating' : phase === 'cooling' ? 'demand is cooling' : phase === 'steady' ? 'demand is steady' : null
+  const parts = [supplyRead, demandRead].filter((p): p is string => p != null)
+  if (parts.length === 0) return null
+  return parts.join(' and ') + '.'
+}
+
+function summarizeOutlook(popGrowthProjPct: number | null | undefined): string | null {
+  if (popGrowthProjPct == null) return null
+  if (popGrowthProjPct >= _POP_GROWTH_STRONG_PCT) {
+    return `Population is projected to grow strongly (+${popGrowthProjPct.toFixed(1)}% by 2031).`
+  }
+  if (popGrowthProjPct <= _POP_GROWTH_WEAK_PCT) {
+    return popGrowthProjPct < 0
+      ? `Population is projected to decline (${popGrowthProjPct.toFixed(1)}% by 2031).`
+      : `Population growth is projected to be flat (+${popGrowthProjPct.toFixed(1)}% by 2031).`
+  }
+  return `Population is projected to grow steadily (+${popGrowthProjPct.toFixed(1)}% by 2031).`
+}
+
+function summarizeVacancy(vacancyRatePct: number | null | undefined): string | null {
+  if (vacancyRatePct == null) return null
+  if (vacancyRatePct <= _VACANCY_TIGHT_PCT) return `Rental vacancy is tight (${vacancyRatePct.toFixed(1)}%) — favours landlords.`
+  if (vacancyRatePct >= _VACANCY_ELEVATED_PCT) return `Rental vacancy is elevated (${vacancyRatePct.toFixed(1)}%) — favours tenants.`
+  return `Rental vacancy is typical for the market (${vacancyRatePct.toFixed(1)}%).`
+}
 
 /** SA2 names often combine multiple gazetted suburbs (e.g. "Rochedale -
  * Burbank", "Kedron - Gordon Park") since that's the ABS statistical area,
@@ -299,123 +462,41 @@ function primarySuburbName(sa2Name: string | null | undefined): string {
   return withoutStateSuffix.split(' - ')[0].trim()
 }
 
-// ---------------------------------------------------------------------------
-// Shared building blocks
-// ---------------------------------------------------------------------------
-
-function Card({ children, style }: { children: ReactNode; style?: React.CSSProperties }) {
-  return (
-    <div
-      style={{
-        backgroundColor: colors.cardBg,
-        border: `1px solid ${colors.border}`,
-        borderRadius: '12px',
-        boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-        padding: '24px',
-        ...style,
-      }}
-    >
-      {children}
-    </div>
-  )
+function fmtHighlightValue(h: InvestmentHighlight): string {
+  if (h.value == null) return '—'
+  if (h.format === 'pct') {
+    // A delta (e.g. price growth) — sign matters, unlike 'rate' below.
+    const v = h.value as number
+    return `${v > 0 ? '+' : ''}${v.toFixed(1)}%`
+  }
+  if (h.format === 'rate') return fmtPct(h.value as number)
+  if (h.format === 'score') return `${Math.round(h.value as number)}/100`
+  if (h.format === 'days') return fmtDays(h.value as number)
+  return String(h.value)
 }
 
-function Section({
-  title,
-  subtitle,
-  dataVintage,
-  children,
-}: {
-  title: string
-  subtitle?: string
-  dataVintage?: string
-  children: ReactNode
-}) {
+const HIGHLIGHT_INFO: Record<string, string> = {
+  Momentum: 'Our in-house accelerating/steady/cooling read, derived from sale velocity, price growth, supply scarcity, and PropRadar heat score — a substitute for the gated market-cycle endpoint.',
+  '1yr Price Growth': "Change in this suburb's median house sale price over the past 12 months.",
+  'Gross Rental Yield': 'Annual rent as a % of the median house price, before costs — 4%+ is commonly cited as a solid investor yield in AU capital cities.',
+  'Supply Scarcity': '0-100 score combining stock-on-market %, inventory months, and building approvals — higher means less for-sale supply relative to demand.',
+  'Days on Market': 'Median number of days a house listing takes to sell in this suburb — fewer days signals stronger buyer demand.',
+}
+
+function InvestmentHighlightTile({ highlight }: { highlight: InvestmentHighlight }) {
+  const toneColor =
+    highlight.tone === 'positive' ? colors.green : highlight.tone === 'negative' ? colors.amber : colors.textPrimary
+  const toneBg =
+    highlight.tone === 'positive' ? colors.greenLight : highlight.tone === 'negative' ? colors.amberLight : colors.pageBg
+  const info = HIGHLIGHT_INFO[highlight.label]
+
   return (
-    <Card style={{ marginBottom: '20px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-        <h3 style={{ fontSize: '18px', fontWeight: 600, color: colors.textPrimary, margin: 0 }}>
-          {title}
-        </h3>
-        {dataVintage && (
-          <span
-            style={{
-              fontSize: '11px',
-              fontWeight: 600,
-              color: colors.amber,
-              backgroundColor: colors.amberLight,
-              padding: '3px 9px',
-              borderRadius: '999px',
-            }}
-            title="This section's figures are only as recent as this data source's last update."
-          >
-            {dataVintage}
-          </span>
-        )}
+    <div style={{ padding: '12px 14px', borderRadius: '8px', backgroundColor: toneBg }}>
+      <div style={{ fontSize: '11px', color: colors.textMuted, marginBottom: '4px' }}>
+        {info ? <MetricWithInfo label={highlight.label} info={info} /> : highlight.label}
       </div>
-      {subtitle && (
-        <p style={{ fontSize: '13px', color: colors.textMuted, marginTop: '4px', marginBottom: '16px' }}>
-          {subtitle}
-        </p>
-      )}
-      <div style={{ marginTop: subtitle ? 0 : '16px' }}>{children}</div>
-    </Card>
-  )
-}
-
-function StatGrid({ children }: { children: ReactNode }) {
-  return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-        gap: '16px',
-      }}
-    >
-      {children}
+      <div style={{ fontSize: '18px', fontWeight: 700, color: toneColor, fontFamily: fonts.mono }}>{fmtHighlightValue(highlight)}</div>
     </div>
-  )
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div style={{ fontSize: '12px', color: colors.textMuted, marginBottom: '4px' }}>{label}</div>
-      <div style={{ fontSize: '20px', fontWeight: 600, color: colors.textPrimary }}>{value}</div>
-    </div>
-  )
-}
-
-function MiniStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div style={{ fontSize: '11px', color: colors.textMuted }}>{label}</div>
-      <div style={{ fontSize: '14px', fontWeight: 600, color: colors.textPrimary }}>{value}</div>
-    </div>
-  )
-}
-
-function Pill({ children, tone = 'blue' }: { children: ReactNode; tone?: 'blue' | 'pink' | 'green' | 'amber' }) {
-  const toneColors = {
-    blue: { bg: colors.blueLight, fg: colors.blue },
-    pink: { bg: colors.pinkLight, fg: colors.pink },
-    green: { bg: colors.greenLight, fg: colors.green },
-    amber: { bg: colors.amberLight, fg: colors.amber },
-  }[tone]
-  return (
-    <span
-      style={{
-        display: 'inline-block',
-        backgroundColor: toneColors.bg,
-        color: toneColors.fg,
-        padding: '6px 12px',
-        borderRadius: '999px',
-        fontSize: '13px',
-        fontWeight: 500,
-      }}
-    >
-      {children}
-    </span>
   )
 }
 
@@ -572,10 +653,13 @@ function ReadyView({ data }: { data: SuburbReport }) {
     sa2_name,
     state,
     census_year,
+    show_census_sections,
     insight,
+    investment_snapshot,
     risk_flags,
     tags,
     regional_comparison,
+    momentum,
     market_stats,
     rental_market,
     property_market,
@@ -638,7 +722,25 @@ function ReadyView({ data }: { data: SuburbReport }) {
         <h3 style={{ fontSize: '16px', fontWeight: 600, color: colors.textPrimary, margin: '0 0 8px 0' }}>
           Key Insight
         </h3>
-        <p style={{ fontSize: '16px', color: colors.textSecondary, lineHeight: 1.6, margin: 0 }}>{insight}</p>
+        <p style={{ fontSize: '16px', color: colors.textSecondary, lineHeight: 1.6, margin: 0 }}>
+          {investment_snapshot?.verdict ?? insight}
+        </p>
+
+        {investment_snapshot && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+              gap: '12px',
+              marginTop: '20px',
+            }}
+          >
+            {investment_snapshot.highlights.map((h) => (
+              <InvestmentHighlightTile key={h.label} highlight={h} />
+            ))}
+          </div>
+        )}
+
         {risk_flags.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '16px' }}>
             {risk_flags.map((flag) => (
@@ -699,7 +801,7 @@ function ReadyView({ data }: { data: SuburbReport }) {
                     <div style={{ fontSize: '11px', fontWeight: 600, color: colors.textMuted, marginBottom: '8px', textTransform: 'uppercase' }}>
                       House
                     </div>
-                    <StatGrid>
+                    <StatGrid compact>
                       <Stat label="Median Price" value={fmtCurrency(s.median_house_price)} />
                       <Stat label="Weekly Rent" value={s.median_house_rent_weekly != null ? `$${fmtNum(s.median_house_rent_weekly)}` : '—'} />
                       <Stat label="Gross Yield" value={fmtPct(s.gross_yield_house_pct)} />
@@ -714,7 +816,7 @@ function ReadyView({ data }: { data: SuburbReport }) {
                     <div style={{ fontSize: '11px', fontWeight: 600, color: colors.textMuted, marginBottom: '8px', textTransform: 'uppercase' }}>
                       Unit
                     </div>
-                    <StatGrid>
+                    <StatGrid compact>
                       <Stat label="Median Price" value={fmtCurrency(s.median_unit_price)} />
                       <Stat label="Weekly Rent" value={s.median_unit_rent_weekly != null ? `$${fmtNum(s.median_unit_rent_weekly)}` : '—'} />
                       <Stat label="Gross Yield" value={fmtPct(s.gross_yield_unit_pct)} />
@@ -726,6 +828,55 @@ function ReadyView({ data }: { data: SuburbReport }) {
                     </StatGrid>
                   </div>
                 </div>
+
+                {(s.median_house_price != null || s.gross_yield_house_pct != null || s.days_on_market_house != null) && (
+                  <div
+                    style={{
+                      display: 'grid',
+                      gap: '14px',
+                      marginTop: '14px',
+                      paddingTop: '14px',
+                      borderTop: `1px solid ${colors.border}`,
+                    }}
+                  >
+                    <div style={{ fontSize: '11px', fontWeight: 600, color: colors.textMuted, textTransform: 'uppercase' }}>
+                      House vs National Median
+                    </div>
+                    {s.median_house_price != null && (
+                      <ContextRuler
+                        label="Median Price"
+                        value={s.median_house_price}
+                        baseline={nationalMedians.medianHousePrice}
+                        min={nationalRanges.medianHousePrice.min}
+                        max={nationalRanges.medianHousePrice.max}
+                        formatValue={fmtCurrency}
+                      />
+                    )}
+                    {s.gross_yield_house_pct != null && (
+                      <ContextRuler
+                        label="Gross Yield"
+                        value={s.gross_yield_house_pct}
+                        baseline={nationalMedians.grossYieldHousePct}
+                        min={nationalRanges.grossYieldHousePct.min}
+                        max={nationalRanges.grossYieldHousePct.max}
+                        formatValue={fmtPct}
+                        higherIsBetter
+                      />
+                    )}
+                    {s.days_on_market_house != null && (
+                      <ContextRuler
+                        label="Days on Market"
+                        value={s.days_on_market_house}
+                        baseline={nationalMedians.daysOnMarketHouse}
+                        min={nationalRanges.daysOnMarketHouse.min}
+                        max={nationalRanges.daysOnMarketHouse.max}
+                        formatValue={fmtDays}
+                        higherIsBetter={false}
+                      />
+                    )}
+                  </div>
+                )}
+
                 <div
                   style={{
                     display: 'flex',
@@ -736,10 +887,10 @@ function ReadyView({ data }: { data: SuburbReport }) {
                     flexWrap: 'wrap',
                   }}
                 >
-                  <MiniStat label="Vacancy Rate" value={fmtPct(s.vacancy_rate_pct)} />
-                  <MiniStat label="Sold vs Asking" value={fmtPct(s.sold_vs_asking_pct)} />
-                  <MiniStat label="Heat Score (House)" value={fmtNum(s.heat_score_house)} />
-                  <MiniStat label="Heat Score (Unit)" value={fmtNum(s.heat_score_unit)} />
+                  <MiniStat label="Vacancy Rate" value={fmtPct(s.vacancy_rate_pct)} info="Share of rental stock currently vacant — under ~0.6% is tight (favours landlords), over ~1.5% is elevated (favours tenants), based on the national distribution." />
+                  <MiniStat label="Sold vs Asking" value={fmtPct(s.sold_vs_asking_pct)} info="Average % difference between final sale price and original asking price across the suburb — positive means homes are selling above asking." />
+                  <MiniStat label="Heat Score (House)" value={fmtNum(s.heat_score_house)} info="PropRadar's own proprietary 0-100 demand-heat index — a black-box figure we can't independently audit or derive, used as one input (20% weight) to our own Momentum score." />
+                  <MiniStat label="Heat Score (Unit)" value={fmtNum(s.heat_score_unit)} info="PropRadar's own proprietary 0-100 demand-heat index for units — same caveat as the house figure." />
                 </div>
               </div>
             ))}
@@ -747,9 +898,173 @@ function ReadyView({ data }: { data: SuburbReport }) {
         </Section>
       )}
 
-      <Section title="Investment Outlook" subtitle="Growth signals relevant to timing an investment decision">
+      {momentum.composite.length > 0 && (
+        <Section
+          title="Momentum & Timing"
+          subtitle="In-house signals derived from PropRadar sold/listing data — our substitute for the gated market-cycle endpoints."
+          summary={summarizeMomentum(
+            momentum.composite[0].phase,
+            momentum.supply_scarcity.find((s) => s.suburb_name === momentum.composite[0].suburb_name)?.scarcity_score ?? null,
+          )}
+        >
+          {momentum.sale_velocity.monthly_counts.length >= 2 && (
+            <div style={{ marginBottom: '24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                <h4 style={{ fontSize: '13px', fontWeight: 600, color: colors.textPrimary, margin: 0 }}>
+                  Sale Velocity (monthly sales)
+                </h4>
+                {momentum.sale_velocity.trend_pct != null && (
+                  <span
+                    style={{
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      color: momentum.sale_velocity.trend_pct >= 0 ? colors.green : colors.amber,
+                    }}
+                  >
+                    {momentum.sale_velocity.trend_pct >= 0 ? '+' : ''}
+                    {momentum.sale_velocity.trend_pct.toFixed(1)}% vs prior 3 months
+                  </span>
+                )}
+              </div>
+              <TrendLine
+                points={momentum.sale_velocity.monthly_counts.map((m) => ({ label: m.period.slice(2), value: m.count }))}
+                color={colors.blue}
+                height={110}
+              />
+            </div>
+          )}
+
+          {momentum.neighborhood.signal && (
+            <div
+              style={{
+                marginBottom: '24px',
+                padding: '12px 16px',
+                borderRadius: '8px',
+                backgroundColor: momentum.neighborhood.signal === 'surrounded_by_acceleration' ? colors.greenLight : colors.amberLight,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: momentum.neighborhood.signal === 'surrounded_by_acceleration' ? colors.green : colors.amber,
+                }}
+              >
+                {momentum.neighborhood.signal === 'surrounded_by_acceleration'
+                  ? '▲ Surrounded by acceleration'
+                  : '▼ Surrounded by cooling'}
+              </span>
+              <span style={{ fontSize: '12px', color: colors.textSecondary, marginLeft: '8px' }}>
+                {momentum.neighborhood.counts.accelerating} of {momentum.neighborhood.total_neighbors} neighboring
+                suburbs are accelerating, {momentum.neighborhood.counts.cooling} cooling
+              </span>
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gap: '16px' }}>
+            {momentum.composite.map((m) => {
+              const scarcity = momentum.supply_scarcity.find((s) => s.suburb_name === m.suburb_name)
+              const quadrant = momentum.growth_yield_quadrant.find((q) => q.suburb_name === m.suburb_name)
+              const cycle = momentum.property_cycle.find((c) => c.suburb_name === m.suburb_name)
+              return (
+                <div key={m.suburb_name} style={{ padding: '16px', backgroundColor: colors.pageBg, borderRadius: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                    <h4 style={{ fontSize: '14px', fontWeight: 600, color: colors.textPrimary, margin: 0 }}>
+                      {m.suburb_name}
+                    </h4>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      {quadrant?.quadrant && <Pill tone="blue">{QUADRANT_TAG_LABEL[quadrant.quadrant]}</Pill>}
+                      <Pill tone={momentumPhaseTone(m.phase)}>
+                        {momentumPhaseArrow(m.phase)} {m.phase ? titleCase(m.phase) : 'Unknown'}
+                        {m.momentum_score != null && ` (${m.momentum_score > 0 ? '+' : ''}${m.momentum_score.toFixed(1)})`}
+                      </Pill>
+                    </div>
+                  </div>
+
+                  {cycle?.position && (
+                    <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0 20px' }}>
+                      <div style={{ maxWidth: '340px', width: '100%' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 600, color: colors.textMuted, marginBottom: '8px', textTransform: 'uppercase', textAlign: 'center' }}>
+                          Property Cycle Position
+                        </div>
+                        <PropertyCycleClock position={cycle.position} confidence={cycle.confidence} />
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: '11px', fontWeight: 600, color: colors.textMuted, marginBottom: '8px', textTransform: 'uppercase' }}>
+                    Component Signals (−1.00 cooling .. +1.00 accelerating)
+                  </div>
+                  <StatGrid>
+                    <Stat
+                      label="Sale Velocity"
+                      value={fmtSignal(m.components.sale_velocity.signal)}
+                      info="How much monthly sale volume changed vs the prior 3 months, on a -1 (cooling) to +1 (accelerating) scale. Weighted 30% of the overall momentum score — the most responsive input."
+                    />
+                    <Stat
+                      label="Price Growth"
+                      value={fmtSignal(m.components.growth.signal)}
+                      info="1-year median price growth, scaled so +/-20% maps to the full -1..+1 range. Weighted 25% of momentum."
+                    />
+                    <Stat
+                      label="Supply Scarcity"
+                      value={fmtSignal(m.components.supply_scarcity.signal)}
+                      info="This suburb's 0-100 scarcity score re-centred so 50 (market-typical) reads as 0. Weighted 25% of momentum."
+                    />
+                    <Stat
+                      label="Heat Score"
+                      value={fmtSignal(m.components.heat_score.signal)}
+                      info="PropRadar's own demand-heat index (0-100), re-centred the same way as scarcity. Weighted 20% of momentum — the only input we can't audit or derive ourselves."
+                    />
+                  </StatGrid>
+
+                  {scarcity && (
+                    <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${colors.border}` }}>
+                      <div style={{ fontSize: '11px', fontWeight: 600, color: colors.textMuted, marginBottom: '8px', textTransform: 'uppercase' }}>
+                        Supply Scarcity Breakdown — {fmtScore100(scarcity.scarcity_score)}
+                      </div>
+                      <HorizontalBars
+                        items={[
+                          {
+                            label: 'Stock on Market',
+                            value: scarcity.components.stock_on_market_score ?? 0,
+                            formattedValue: fmtScore100(scarcity.components.stock_on_market_score),
+                            info: '% of dwelling stock currently listed for sale, scored 0 (abundant) to 100 (scarce) against the national median (~0.36%). 35% weight in the scarcity score.',
+                          },
+                          {
+                            label: 'Inventory Months',
+                            value: scarcity.components.inventory_months_score ?? 0,
+                            formattedValue: fmtScore100(scarcity.components.inventory_months_score),
+                            info: 'Months of stock at the current sales pace, scored against the national median (~2.4 months). 35% weight in the scarcity score.',
+                          },
+                          {
+                            label: 'Building Approvals',
+                            value: scarcity.components.building_approvals_score ?? 0,
+                            formattedValue: fmtScore100(scarcity.components.building_approvals_score),
+                            info: 'New dwellings approved per 1,000 residents in the last year, scored against the national median (~3.4) — the only forward-looking (vs live-snapshot) input. 30% weight in the scarcity score.',
+                          },
+                        ]}
+                        max={100}
+                        color={colors.blue}
+                      />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </Section>
+      )}
+
+      <Section
+        title="Investment Outlook"
+        subtitle="Growth signals relevant to timing an investment decision"
+        summary={summarizeOutlook(investment_outlook.pop_growth_proj_pct)}
+      >
         <StatGrid>
-          <Stat label={`Population Growth (5yr, ${census_year} Census)`} value={fmtPct(investment_outlook.pop_growth_5yr)} />
+          {show_census_sections && (
+            <Stat label={`Population Growth (5yr, ${census_year} Census)`} value={fmtPct(investment_outlook.pop_growth_5yr)} />
+          )}
           <Stat label="Projected Population 2026" value={fmtNum(investment_outlook.pop_proj_2026)} />
           <Stat label="Projected Population 2031" value={fmtNum(investment_outlook.pop_proj_2031)} />
           <Stat label="Projected Growth to 2031" value={fmtPct(investment_outlook.pop_growth_proj_pct)} />
@@ -778,6 +1093,7 @@ function ReadyView({ data }: { data: SuburbReport }) {
       <Section
         title="Housing Market"
         subtitle="Sold-listing data from PropRadar. See Market Snapshot above for median price, rent, and yield."
+        summary={momentum.growth_yield_quadrant[0]?.label ?? null}
       >
         <StatGrid>
           <Stat label="Dwellings Approved (1yr)" value={fmtNum(property_market.building_approvals_1yr)} />
@@ -906,6 +1222,7 @@ function ReadyView({ data }: { data: SuburbReport }) {
         <Section
           title="Rental Market"
           subtitle="PropRadar's suburb-level rent and yield, visualised rather than repeating Market Snapshot's numbers. House/unit is the finest granularity available — PropRadar has no per-bed/bath rental-listings endpoint. Trend charts fill in as more monthly snapshots accumulate."
+          summary={summarizeVacancy(rental_market[0]?.history[rental_market[0].history.length - 1]?.vacancy_rate_pct)}
         >
           <div style={{ display: 'grid', gap: '16px' }}>
             {rental_market.map((r) => {
@@ -1019,7 +1336,7 @@ function ReadyView({ data }: { data: SuburbReport }) {
         </Section>
       )}
 
-      {regional_comparison && (
+      {show_census_sections && regional_comparison && (
         <Section
           title={`${primarySuburbName(sa2_name)} vs ${regional_comparison.region_label} Average`}
           subtitle={`Compared against the ${regional_comparison.region_label} region average (ABS SA4 level)`}
@@ -1082,6 +1399,8 @@ function ReadyView({ data }: { data: SuburbReport }) {
         </Section>
       )}
 
+      {show_census_sections && (
+      <>
       <Section title="Demographics" dataVintage={`${census_year} Census`}>
         <StatGrid>
           <Stat label="Population" value={fmtNum(demographics.population)} />
@@ -1189,6 +1508,8 @@ function ReadyView({ data }: { data: SuburbReport }) {
           </div>
         )}
       </Section>
+      </>
+      )}
 
       <Section
         title="Community & Socio-Economic Profile"
@@ -1197,11 +1518,27 @@ function ReadyView({ data }: { data: SuburbReport }) {
       >
         {(() => {
           const items = [
-            { label: 'Disadvantage (IRSD)', value: community.seifa_irsd_decile },
-            { label: 'Advantage/Disadvantage (IRSAD)', value: community.seifa_irsad_decile },
-            { label: 'Economic Resources (IER)', value: community.seifa_ier_decile },
-            { label: 'Education & Occupation (IEO)', value: community.seifa_ieo_decile },
-          ].filter((i): i is { label: string; value: number } => i.value != null)
+            {
+              label: 'Disadvantage (IRSD)',
+              value: community.seifa_irsd_decile,
+              info: 'ABS Index of Relative Socio-Economic Disadvantage — ranks areas on disadvantage indicators only (low income, unemployment, low-skill jobs). Decile 1 = most disadvantaged nationally.',
+            },
+            {
+              label: 'Advantage/Disadvantage (IRSAD)',
+              value: community.seifa_irsad_decile,
+              info: "ABS Index of Relative Socio-Economic Advantage and Disadvantage — a broader index than IRSD, weighing both advantage (high income, skilled jobs) and disadvantage indicators.",
+            },
+            {
+              label: 'Economic Resources (IER)',
+              value: community.seifa_ier_decile,
+              info: "ABS Index of Economic Resources — focuses on income, housing costs, and asset-related indicators, excluding education/occupation.",
+            },
+            {
+              label: 'Education & Occupation (IEO)',
+              value: community.seifa_ieo_decile,
+              info: "ABS Index of Education and Occupation — measures the qualification and job-skill profile of residents, excluding income.",
+            },
+          ].filter((i): i is { label: string; value: number; info: string } => i.value != null)
           return items.length > 0 ? (
             <HorizontalBars
               max={10}
@@ -1357,12 +1694,15 @@ function ReadyView({ data }: { data: SuburbReport }) {
       </Section>
 
       <Section title="Transport & Connectivity" subtitle={`PT stop counts are from the current GTFS feed; commute-mode and zero-car figures are from the ${census_year} Census.`}>
-        <StatGrid>
-          <Stat label="Zero-Car Households" value={fmtPct(transport.zero_car_dwellings_pct)} />
-        </StatGrid>
+        {show_census_sections && (
+          <StatGrid>
+            <Stat label="Zero-Car Households" value={fmtPct(transport.zero_car_dwellings_pct)} />
+          </StatGrid>
+        )}
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '32px', marginTop: '20px' }}>
           {(() => {
+            if (!show_census_sections) return null
             const car = transport.car_commute_pct
             const pt = transport.pt_commute_pct
             const wfh = transport.work_from_home_pct

@@ -16,7 +16,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.gov_score import analyze_risk_flags, generate_insight
+from app.core.momentum import (
+    classify_growth_yield_quadrant,
+    classify_property_cycle_position,
+    compute_momentum,
+    compute_supply_scarcity,
+    generate_investment_snapshot,
+)
 from app.core.scoring import calculate_investment_score
 from app.db.models import (
     ABSCEntensMetrics,
@@ -26,6 +34,7 @@ from app.db.models import (
     SA2Region,
 )
 from app.db.session import get_db
+from app.services.momentum_service import fetch_neighborhood_momentum, fetch_sale_velocity
 from app.services.property_market_service import (
     fetch_detailed_specs,
     fetch_house_type_breakdown,
@@ -98,7 +107,68 @@ async def suburb_report(
         house_type_breakdown = await fetch_house_type_breakdown(db, sa2_code)
         detailed_specs = await fetch_detailed_specs(db, sa2_code)
         land_size_breakdown = await fetch_land_size_breakdown(db, sa2_code)
+        sale_velocity = await fetch_sale_velocity(db, sa2_code)
         market_stats = await fetch_suburb_market_stats(db, sa2_code)
+        supply_scarcity = [
+            {
+                "suburb_name": stats["suburb_name"],
+                **compute_supply_scarcity(
+                    stock_on_market_pct_house=stats.get("stock_on_market_pct_house"),
+                    stock_on_market_pct_unit=stats.get("stock_on_market_pct_unit"),
+                    inventory_months_house=stats.get("inventory_months_house"),
+                    inventory_months_unit=stats.get("inventory_months_unit"),
+                    building_approvals_1yr=m.building_approvals_1yr,
+                    population=m.population,
+                ),
+            }
+            for stats in market_stats
+        ]
+        momentum_composite = [
+            {
+                "suburb_name": stats["suburb_name"],
+                **compute_momentum(
+                    sale_velocity_trend_pct=sale_velocity["trend_pct"],
+                    growth_house_1y_pct=stats.get("growth_house_1y_pct"),
+                    growth_unit_1y_pct=stats.get("growth_unit_1y_pct"),
+                    scarcity_score=scarcity["scarcity_score"],
+                    heat_score_house=stats.get("heat_score_house"),
+                    heat_score_unit=stats.get("heat_score_unit"),
+                ),
+            }
+            for stats, scarcity in zip(market_stats, supply_scarcity)
+        ]
+        growth_yield_quadrant = [
+            {
+                "suburb_name": stats["suburb_name"],
+                **classify_growth_yield_quadrant(
+                    growth_house_1y_pct=stats.get("growth_house_1y_pct"),
+                    gross_yield_house_pct=stats.get("gross_yield_house_pct"),
+                ),
+            }
+            for stats in market_stats
+        ]
+        property_cycle = [
+            {
+                "suburb_name": m["suburb_name"],
+                **classify_property_cycle_position(
+                    growth_signal=m["components"]["growth"]["signal"],
+                    velocity_signal=m["components"]["sale_velocity"]["signal"],
+                ),
+            }
+            for m in momentum_composite
+        ]
+        investment_snapshot = (
+            generate_investment_snapshot(
+                momentum_phase=momentum_composite[0]["phase"],
+                growth_house_1y_pct=market_stats[0].get("growth_house_1y_pct"),
+                gross_yield_house_pct=market_stats[0].get("gross_yield_house_pct"),
+                scarcity_score=supply_scarcity[0]["scarcity_score"],
+                days_on_market_house=market_stats[0].get("days_on_market_house"),
+            )
+            if market_stats
+            else None
+        )
+        neighborhood_momentum = await fetch_neighborhood_momentum(db, sa2_code)
         rental_market = await fetch_rental_market_history(db, sa2_code)
         regional_comparison = await fetch_regional_comparison(db, sa2_code)
         schools = await fetch_schools(db, sa2_code)
@@ -110,12 +180,22 @@ async def suburb_report(
             "sa2_name": region.sa2_name,
             "state": region.state,
             "census_year": 2021,
+            "show_census_sections": settings.SHOW_CENSUS_SECTIONS,
             "insight": insight,
+            "investment_snapshot": investment_snapshot,
             "risk_flags": risk_flags,
             "tags": _generate_tags(scores),
             "regional_comparison": regional_comparison,
             "location": {
                 "distance_to_cbd_km": region.distance_to_cbd_km,
+            },
+            "momentum": {
+                "sale_velocity": sale_velocity,
+                "supply_scarcity": supply_scarcity,
+                "composite": momentum_composite,
+                "neighborhood": neighborhood_momentum,
+                "growth_yield_quadrant": growth_yield_quadrant,
+                "property_cycle": property_cycle,
             },
             "market_stats": market_stats,
             "rental_market": rental_market,

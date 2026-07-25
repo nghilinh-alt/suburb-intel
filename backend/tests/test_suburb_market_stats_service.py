@@ -4,9 +4,11 @@ each of those suburbs), returned as a list rather than averaged."""
 
 from __future__ import annotations
 
+from datetime import date, datetime, timezone
+
 import pytest
 
-from app.db.models import SuburbMarketStats
+from app.db.models import PropertySale, SuburbMarketStats
 from app.db.session import AsyncSessionLocal
 from app.services.suburb_market_stats_service import (
     fetch_rental_market_history,
@@ -108,3 +110,50 @@ async def test_rental_history_empty_when_no_stats():
     async with AsyncSessionLocal() as session:
         result = await fetch_rental_market_history(session, "99999995")
     assert result == []
+
+
+async def _seed_sale_for_growth(session, id_, sa2_code, sold_date, sold_price, property_type="house"):
+    session.add(PropertySale(
+        id=id_, sa2_code=sa2_code, address=f"{id_} Test St", state="QLD",
+        property_type=property_type, sold_price=sold_price, sold_date=sold_date,
+        source="propradar", fetched_at=datetime.now(timezone.utc),
+    ))
+
+
+@pytest.mark.asyncio
+async def test_null_propradar_growth_backfilled_from_property_sales():
+    sa2 = "91000010"
+    as_of = date(2026, 7, 10)
+    async with AsyncSessionLocal() as session:
+        session.add(SuburbMarketStats(
+            id="QLD-growthtest-2026-07", sa2_code=sa2, suburb_name="Growthtest", state="QLD", period="2026-07",
+            growth_house_1y_pct=None,  # PropRadar returned null for this field
+            growth_house_3y_pct=8.2,   # PropRadar DID return a real figure — must not be overwritten
+        ))
+        for i, price in enumerate([600_000, 610_000, 620_000]):
+            await _seed_sale_for_growth(session, f"g-recent-{i}", sa2, "2026-06-15", price)
+        for i, price in enumerate([500_000, 505_000, 510_000]):
+            await _seed_sale_for_growth(session, f"g-prior-{i}", sa2, "2025-06-15", price)
+        await session.commit()
+
+        result = await fetch_suburb_market_stats(session, sa2, as_of=as_of)
+
+    record = result[0]
+    assert record["growth_house_1y_pct"] == 20.8  # backfilled
+    assert record["growth_house_3y_pct"] == 8.2  # untouched — real PropRadar value wins
+    assert record["growth_derived_fields"] == ["growth_house_1y_pct"]
+
+
+@pytest.mark.asyncio
+async def test_growth_derived_fields_empty_when_nothing_to_backfill():
+    sa2 = "91000011"
+    async with AsyncSessionLocal() as session:
+        session.add(SuburbMarketStats(
+            id="QLD-nogrowthtest-2026-07", sa2_code=sa2, suburb_name="Nogrowthtest", state="QLD", period="2026-07",
+        ))
+        await session.commit()
+
+        result = await fetch_suburb_market_stats(session, sa2)
+
+    assert result[0]["growth_derived_fields"] == []
+    assert result[0]["growth_house_1y_pct"] is None

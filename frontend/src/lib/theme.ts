@@ -17,3 +17,23 @@ export const colors = {
   amber: '#B45309',
   amberLight: '#FEF3C7',
 }
+
+// Monospace stack for numeric figures (prices, percentages, scores) — tabular
+// figures line up in dense grids/tables the way a proportional font can't.
+// Falls back through common pre-installed monospace fonts rather than
+// bundling a webfont (Phase 3 density pass, WS2 §4 "Bloomberg terminal"
+// reference point).
+export const fonts = {
+  mono: "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
+}
+
+// Spacing/sizing tokens for the denser variants introduced in the Phase 3
+// density pass — used alongside (not instead of) the ad-hoc inline styles
+// already in each page. Compact values are deliberately ~2/3 of the
+// pre-existing defaults (24px card padding, 16px grid gap, 160px stat
+// column), not an arbitrary redesign.
+export const density = {
+  cardPaddingCompact: '16px',
+  gridGapCompact: '10px',
+  statMinWidthCompact: '130px',
+}
