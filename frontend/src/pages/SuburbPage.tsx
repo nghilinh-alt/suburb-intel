@@ -604,12 +604,7 @@ export default function SuburbPage() {
     <div
       style={{
         backgroundColor: colors.pageBg,
-        backgroundImage:
-          'radial-gradient(circle at 1px 1px, rgba(15,23,42,0.06) 1px, transparent 0)',
-        backgroundSize: '18px 18px',
-        margin: '-20px',
-        padding: '20px',
-        minHeight: 'calc(100vh - 40px)',
+        minHeight: '100vh',
       }}
     >
       <div style={{ marginBottom: '20px' }}>

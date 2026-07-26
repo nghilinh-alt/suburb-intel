@@ -306,16 +306,7 @@ export default function SearchPage() {
   const activeFilterCount = countActiveFilters(draft)
 
   return (
-    <div
-      style={{
-        backgroundColor: colors.pageBg,
-        backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(15,23,42,0.06) 1px, transparent 0)',
-        backgroundSize: '18px 18px',
-        margin: '-20px',
-        padding: '20px',
-        minHeight: 'calc(100vh - 40px)',
-      }}
-    >
+    <div>
       <div style={{ marginBottom: '24px' }}>
         <FunnelStep step={1} total={3} label="Macro filter" />
         <h1 style={{ fontSize: '32px', margin: 0, color: colors.textPrimary }}>Search Suburbs</h1>
@@ -619,7 +610,7 @@ function FilterSidebar({
   }
 
   return (
-    <Card style={{ position: 'sticky', top: '20px', padding: '20px' }}>
+    <Card style={{ position: 'sticky', top: '84px', padding: '20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
         <h3 style={{ fontSize: '16px', fontWeight: 600, color: colors.textPrimary, margin: 0 }}>Filters</h3>
         {activeFilterCount > 0 && (
