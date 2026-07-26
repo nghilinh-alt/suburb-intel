@@ -85,6 +85,15 @@ interface SuburbMarketStat {
   heat_score_unit: number | null
   sales_12mo_house: number | null
   sales_12mo_unit: number | null
+  stock_on_market_pct_house: number | null
+  stock_on_market_pct_unit: number | null
+  inventory_months_house: number | null
+  inventory_months_unit: number | null
+}
+
+interface SuburbScores {
+  resilience_score: number | null
+  housing_pressure_score: number | null
 }
 
 interface InvestmentOutlook {
@@ -331,6 +340,7 @@ interface SuburbReport {
   investment_snapshot: InvestmentSnapshot | null
   risk_flags: string[]
   tags: string[]
+  scores: SuburbScores | null
   regional_comparison: RegionalComparison | null
   location: { distance_to_cbd_km: number | null }
   momentum: Momentum
@@ -460,6 +470,25 @@ function primarySuburbName(sa2Name: string | null | undefined): string {
   if (!sa2Name) return 'This Suburb'
   const withoutStateSuffix = sa2Name.replace(/\s*\((Vic\.|NSW|ACT|SA|WA|QLD|NT|Tas\.)\)\s*$/i, '')
   return withoutStateSuffix.split(' - ')[0].trim()
+}
+
+function ScoreIndicator({ label, value, info }: { label: string; value: number; info?: string }) {
+  const pct = Math.min(Math.max(Math.round(value), 0), 100)
+  const color = pct >= 70 ? colors.green : pct >= 40 ? colors.blue : colors.amber
+  const bg = pct >= 70 ? colors.greenLight : pct >= 40 ? colors.blueLight : colors.amberLight
+  return (
+    <div style={{ padding: '12px 14px', borderRadius: '8px', backgroundColor: bg }}>
+      <div style={{ fontSize: '11px', color: colors.textMuted, marginBottom: '6px' }}>
+        {info ? <MetricWithInfo label={label} info={info} /> : label}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ flex: 1, height: '6px', backgroundColor: 'rgba(0,0,0,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+          <div style={{ width: `${pct}%`, height: '100%', backgroundColor: color, borderRadius: '3px', transition: 'width 0.4s' }} />
+        </div>
+        <span style={{ fontSize: '14px', fontWeight: 700, color, fontFamily: fonts.mono, flexShrink: 0 }}>{pct}/100</span>
+      </div>
+    </div>
+  )
 }
 
 function fmtHighlightValue(h: InvestmentHighlight): string {
@@ -653,6 +682,7 @@ function ReadyView({ data }: { data: SuburbReport }) {
     investment_snapshot,
     risk_flags,
     tags,
+    scores,
     regional_comparison,
     momentum,
     market_stats,
@@ -743,6 +773,34 @@ function ReadyView({ data }: { data: SuburbReport }) {
                 {flag}
               </Pill>
             ))}
+          </div>
+        )}
+
+        {scores && (scores.resilience_score != null || scores.housing_pressure_score != null) && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: '12px',
+              marginTop: '20px',
+              paddingTop: '20px',
+              borderTop: `1px solid ${colors.border}`,
+            }}
+          >
+            {scores.resilience_score != null && (
+              <ScoreIndicator
+                label="Resilience Score"
+                value={scores.resilience_score}
+                info="Composite score (0–100) measuring the suburb's resistance to economic downturns — derived from income diversity, employment spread, and owner-occupancy levels."
+              />
+            )}
+            {scores.housing_pressure_score != null && (
+              <ScoreIndicator
+                label="Housing Pressure"
+                value={scores.housing_pressure_score}
+                info="Composite score (0–100) measuring rental and mortgage stress — high scores indicate affordability pressure on residents."
+              />
+            )}
           </div>
         )}
       </Card>
@@ -886,6 +944,10 @@ function ReadyView({ data }: { data: SuburbReport }) {
                   <MiniStat label="Sold vs Asking" value={fmtPct(s.sold_vs_asking_pct)} info="Average % difference between final sale price and original asking price across the suburb — positive means homes are selling above asking." />
                   <MiniStat label="Heat Score (House)" value={fmtNum(s.heat_score_house)} info="PropRadar's own proprietary 0-100 demand-heat index — a black-box figure we can't independently audit or derive, used as one input (20% weight) to our own Momentum score." />
                   <MiniStat label="Heat Score (Unit)" value={fmtNum(s.heat_score_unit)} info="PropRadar's own proprietary 0-100 demand-heat index for units — same caveat as the house figure." />
+                  <MiniStat label="Stock on Market (House)" value={fmtPct(s.stock_on_market_pct_house)} info="% of the total housing stock currently listed for sale — lower means tighter supply. Under 1% is considered very tight in AU capital cities." />
+                  <MiniStat label="Stock on Market (Unit)" value={fmtPct(s.stock_on_market_pct_unit)} info="% of the total unit stock currently listed for sale." />
+                  <MiniStat label="Inventory (House)" value={s.inventory_months_house != null ? `${s.inventory_months_house.toFixed(1)} mo` : '—'} info="Months of supply at current sales pace — how long it would take to sell all listed houses. Under 2 months is a seller's market; over 6 is a buyer's market." />
+                  <MiniStat label="Inventory (Unit)" value={s.inventory_months_unit != null ? `${s.inventory_months_unit.toFixed(1)} mo` : '—'} info="Months of supply at current sales pace for units." />
                 </div>
               </div>
             ))}

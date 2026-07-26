@@ -129,6 +129,8 @@ export interface FilteredSuburb {
   scarcity_score: number | null
   gross_yield_house_pct: number | null
   vacancy_rate_pct: number | null
+  growth_1yr_house_pct: number | null
+  heat_score: number | null
 }
 
 export interface FilterSuburbsResponse {

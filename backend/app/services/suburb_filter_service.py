@@ -91,6 +91,8 @@ async def search_suburbs_filtered(
             func.avg(SuburbMarketStats.days_on_market_house).label("avg_days_on_market_house"),
             func.avg(SuburbMarketStats.gross_yield_house_pct).label("avg_gross_yield_house_pct"),
             func.avg(SuburbMarketStats.vacancy_rate_pct).label("avg_vacancy_rate_pct"),
+            func.avg(SuburbMarketStats.growth_house_1y_pct).label("avg_growth_house_1y_pct"),
+            func.avg(SuburbMarketStats.heat_score_house).label("avg_heat_score_house"),
         )
         .group_by(SuburbMarketStats.sa2_code)
         .subquery()
@@ -125,6 +127,8 @@ async def search_suburbs_filtered(
             market_agg.c.avg_days_on_market_house,
             market_agg.c.avg_gross_yield_house_pct,
             market_agg.c.avg_vacancy_rate_pct,
+            market_agg.c.avg_growth_house_1y_pct,
+            market_agg.c.avg_heat_score_house,
         )
         .select_from(SA2Region)
         .join(
@@ -262,4 +266,6 @@ def _row_to_dict(row) -> Dict[str, Any]:
         "scarcity_score": row.scarcity_score,
         "gross_yield_house_pct": row.avg_gross_yield_house_pct,
         "vacancy_rate_pct": row.avg_vacancy_rate_pct,
+        "growth_1yr_house_pct": row.avg_growth_house_1y_pct,
+        "heat_score": row.avg_heat_score_house,
     }

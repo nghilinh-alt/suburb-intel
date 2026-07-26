@@ -1091,11 +1091,34 @@ function SuburbTile({ suburb }: { suburb: FilteredSuburb }) {
           </div>
         )}
 
-        {suburb.pop_growth_5yr_pct != null && (
-          <div style={{ marginTop: '10px', fontSize: '12px', color: colors.green, fontWeight: 600 }}>
-            +{suburb.pop_growth_5yr_pct.toFixed(1)}% population growth (5yr)
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: '12px', marginTop: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {suburb.growth_1yr_house_pct != null && (
+            <span style={{
+              fontSize: '12px',
+              fontWeight: 600,
+              color: suburb.growth_1yr_house_pct >= 0 ? colors.green : colors.amber,
+            }}>
+              {suburb.growth_1yr_house_pct >= 0 ? '+' : ''}{suburb.growth_1yr_house_pct.toFixed(1)}% house (1yr)
+            </span>
+          )}
+          {suburb.pop_growth_5yr_pct != null && suburb.growth_1yr_house_pct == null && (
+            <span style={{ fontSize: '12px', fontWeight: 600, color: colors.green }}>
+              +{suburb.pop_growth_5yr_pct.toFixed(1)}% pop growth (5yr)
+            </span>
+          )}
+          {suburb.heat_score != null && (
+            <span style={{
+              fontSize: '11px',
+              fontWeight: 700,
+              color: suburb.heat_score >= 60 ? colors.rose : suburb.heat_score >= 35 ? colors.amber : colors.textMuted,
+              backgroundColor: suburb.heat_score >= 60 ? colors.roseLight : suburb.heat_score >= 35 ? colors.amberLight : '#f1f5f9',
+              padding: '2px 7px',
+              borderRadius: '999px',
+            }}>
+              🔥 Heat {Math.round(suburb.heat_score)}
+            </span>
+          )}
+        </div>
       </Card>
     </Link>
   )

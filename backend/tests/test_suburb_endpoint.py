@@ -25,13 +25,20 @@ def test_suburb_report_show_census_sections_defaults_true(client) -> None:
     assert response.json()["show_census_sections"] is True
 
 
-def test_suburb_report_has_no_numeric_composite_scores(client) -> None:
-    """Regression: the report used to expose a `scores` dict of 0-100
-    composite numbers; the product now shows underlying data instead."""
+def test_suburb_report_scores_contains_only_resilience_and_housing_pressure(client) -> None:
+    """The `scores` key must expose only resilience_score and housing_pressure_score.
+    The full composite investment/demographic/economic scores are intentionally
+    kept out of the suburb report (they drive insight/tags/risk_flags text but
+    the underlying metrics are more useful to show directly)."""
     response = client.get("/suburb/47002")
     assert response.status_code == 200
     body = response.json()
-    assert "scores" not in body
+    assert "scores" in body
+    scores = body["scores"]
+    assert set(scores.keys()) == {"resilience_score", "housing_pressure_score"}
+    # Values are either null (no SuburbScore row for the seed SA2) or 0-100 floats
+    for v in scores.values():
+        assert v is None or (isinstance(v, (int, float)) and 0 <= v <= 100)
 
 
 def test_suburb_report_has_all_sections(client) -> None:
