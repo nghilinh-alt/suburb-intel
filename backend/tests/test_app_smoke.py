@@ -37,6 +37,7 @@ def test_health_endpoint(client) -> None:
 def test_expected_routes_registered(client, path: str) -> None:
     """Regression: the ABS + OSM endpoints used to be nested inside
     `search_suburbs()` so they never registered. They must appear on the app."""
-    paths = {route.path for route in client.app.routes}
+    # Use the OpenAPI schema — the authoritative source of all registered routes.
+    registered = set(client.app.openapi()["paths"].keys())
     # FastAPI normalises trailing slashes; check either form is present.
-    assert path in paths or f"{path}/" in paths, f"missing route {path}"
+    assert path in registered or f"{path}/" in registered, f"missing route {path}"
