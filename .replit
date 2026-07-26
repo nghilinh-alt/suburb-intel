@@ -2,7 +2,7 @@ modules = ["python-3.12", "nodejs-20"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["geos", "glibcLocales", "libxcrypt"]
+packages = ["arrow-cpp", "geos", "glibcLocales", "libxcrypt", "openssl", "pkg-config"]
 
 [agent]
 expertMode = true

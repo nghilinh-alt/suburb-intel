@@ -32,10 +32,13 @@ class DatabaseSettings(BaseSettings):
 settings = DatabaseSettings()
 DATABASE_URL: str = settings.DATABASE_URL
 
-# SQLite needs an async driver. We accept either `sqlite://` or `sqlite+aiosqlite://`
-# in config and normalize it here so users don't have to remember the driver suffix.
-if DATABASE_URL.startswith("sqlite://"):
+# Normalize driver prefixes so callers don't have to remember them.
+# sqlite://  -> sqlite+aiosqlite://   (async SQLite)
+# postgresql:// or postgres:// -> postgresql+asyncpg://   (async Postgres)
+if DATABASE_URL.startswith("sqlite://") and "+aiosqlite" not in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("sqlite://", "sqlite+aiosqlite://", 1)
+elif DATABASE_URL.startswith(("postgresql://", "postgres://")) and "+" not in DATABASE_URL.split("://")[0]:
+    DATABASE_URL = DATABASE_URL.replace("://", "+asyncpg://", 1)
 
 is_sqlite: bool = DATABASE_URL.startswith("sqlite+aiosqlite://")
 
