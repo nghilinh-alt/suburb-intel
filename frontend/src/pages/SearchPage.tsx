@@ -84,6 +84,8 @@ interface DraftFilters {
   momentumPhase: MomentumPhase | ''
   growthYieldQuadrant: GrowthYieldQuadrant | ''
   minScarcityScore: string
+  minAmenityScore: string
+  maxBuildingApprovals1yr: string
 }
 
 const EMPTY_DRAFT: DraftFilters = {
@@ -115,6 +117,8 @@ const EMPTY_DRAFT: DraftFilters = {
   momentumPhase: '',
   growthYieldQuadrant: '',
   minScarcityScore: '',
+  minAmenityScore: '',
+  maxBuildingApprovals1yr: '',
 }
 
 // Large-value filter fields are entered in millions ($M) or thousands (k) in
@@ -155,6 +159,8 @@ function draftToFilters(d: DraftFilters): SuburbFilters {
     momentum_phase: d.momentumPhase || undefined,
     growth_yield_quadrant: d.growthYieldQuadrant || undefined,
     min_scarcity_score: num(d.minScarcityScore),
+    min_amenity_score: num(d.minAmenityScore),
+    max_building_approvals_1yr: d.maxBuildingApprovals1yr.trim() === '' ? undefined : parseInt(d.maxBuildingApprovals1yr, 10),
   }
 }
 
@@ -726,13 +732,21 @@ function FilterSidebar({
       />
       <MinFilter
         label="Investment Score"
+        hint="Composite 0–100 score: weights momentum (30%), scarcity (25%), yield (20%), demographics (15%), economic base (10%). Higher = stronger overall investment case."
         value={draft.minInvestmentScore}
         onChange={(v) => set('minInvestmentScore', v)}
       />
       <MinFilter
         label="Economic Score"
+        hint="Composite 0–100 score: median income, unemployment rate, employment diversity, and workforce participation. Captures the economic health of the resident base."
         value={draft.minEconomicScore}
         onChange={(v) => set('minEconomicScore', v)}
+      />
+      <MinFilter
+        label="Min Amenity Score"
+        hint="0–10 walkability/liveability score derived from Overture Maps POI density — cafes, schools, parks, transport, healthcare. Higher = more amenity-rich area."
+        value={draft.minAmenityScore}
+        onChange={(v) => set('minAmenityScore', v)}
       />
       <MaxFilter
         label="Days on Market"
@@ -801,8 +815,15 @@ function FilterSidebar({
           />
           <MinFilter
             label="Demographic Score"
+            hint="Composite 0–100 score: population growth trajectory, age mix (working-age density), education attainment, and renter/owner ratio. Captures demand-side demographic tailwinds."
             value={draft.minDemographicScore}
             onChange={(v) => set('minDemographicScore', v)}
+          />
+          <MaxFilter
+            label="Max Building Approvals (1yr)"
+            hint="New residential dwellings approved in the last financial year (ABS). Lower = less future supply being added — a proxy for supply scarcity in the near term."
+            value={draft.maxBuildingApprovals1yr}
+            onChange={(v) => set('maxBuildingApprovals1yr', v)}
           />
         </div>
       </details>

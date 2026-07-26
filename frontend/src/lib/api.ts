@@ -99,6 +99,8 @@ export interface SuburbFilters {
   momentum_phase?: MomentumPhase
   growth_yield_quadrant?: GrowthYieldQuadrant
   min_scarcity_score?: number
+  min_amenity_score?: number
+  max_building_approvals_1yr?: number
 }
 
 export interface FilteredSuburb {
@@ -131,6 +133,8 @@ export interface FilteredSuburb {
   vacancy_rate_pct: number | null
   growth_1yr_house_pct: number | null
   heat_score: number | null
+  amenity_score: number | null
+  building_approvals_1yr: number | null
 }
 
 export interface FilterSuburbsResponse {
@@ -200,6 +204,8 @@ export interface RankedSuburb {
   growth_yield_quadrant: GrowthYieldQuadrant | null
   neighborhood_signal: NeighborhoodSignal | null
   scarcity_score: number | null
+  median_house_price: number | null
+  gross_yield_house_pct: number | null
 }
 
 export interface RankingsResponse {
@@ -208,8 +214,13 @@ export interface RankingsResponse {
   rankings: RankedSuburb[]
 }
 
-export async function getRankings(scoreType: ScoreType, limit = 25): Promise<RankingsResponse> {
+export async function getRankings(
+  scoreType: ScoreType,
+  limit = 25,
+  states?: string[],
+): Promise<RankingsResponse> {
   const params = new URLSearchParams({ score_type: scoreType, limit: String(limit) })
+  if (states && states.length > 0) params.set('states', states.join(','))
   const res = await fetch(`${API_BASE}/rankings/?${params.toString()}`)
   if (!res.ok) throw new Error(await parseErrorDetail(res))
   return res.json()

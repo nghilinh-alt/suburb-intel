@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Card } from '../components/primitives'
-import { getRankings, type RankedSuburb, type RankingsResponse, type ScoreType } from '../lib/api'
+import { getFilterOptions, getRankings, type RankedSuburb, type RankingsResponse, type ScoreType } from '../lib/api'
 import { colors, fonts } from '../lib/theme'
 
 const SCORE_TABS: { value: ScoreType; label: string }[] = [
@@ -30,15 +30,27 @@ type State =
 export default function RankingsPage() {
   const [scoreType, setScoreType] = useState<ScoreType>('momentum_score')
   const [state, setState] = useState<State>({ status: 'loading' })
+  const [availableStates, setAvailableStates] = useState<string[]>([])
+  const [selectedStates, setSelectedStates] = useState<string[]>([])
+
+  useEffect(() => {
+    getFilterOptions()
+      .then((opts) => setAvailableStates(opts.states))
+      .catch(() => setAvailableStates([]))
+  }, [])
 
   useEffect(() => {
     setState({ status: 'loading' })
-    getRankings(scoreType, 25)
+    getRankings(scoreType, 25, selectedStates.length > 0 ? selectedStates : undefined)
       .then((data) => setState({ status: 'ready', data }))
       .catch((err) =>
         setState({ status: 'error', message: err instanceof Error ? err.message : 'Failed to load rankings.' }),
       )
-  }, [scoreType])
+  }, [scoreType, selectedStates])
+
+  function toggleState(s: string) {
+    setSelectedStates((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]))
+  }
 
   return (
     <div>
@@ -55,6 +67,56 @@ export default function RankingsPage() {
           to refine filters.
         </p>
       </div>
+
+      {/* State filter */}
+      {availableStates.length > 0 && (
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ fontSize: '11px', fontWeight: 600, color: colors.textMuted, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '8px' }}>
+            Filter by State
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+            {availableStates.map((s) => {
+              const active = selectedStates.includes(s)
+              return (
+                <button
+                  key={s}
+                  onClick={() => toggleState(s)}
+                  style={{
+                    padding: '5px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '999px',
+                    border: `1px solid ${active ? colors.pink : colors.border}`,
+                    backgroundColor: active ? colors.pinkLight : colors.cardBg,
+                    color: active ? colors.pink : colors.textSecondary,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {s}
+                </button>
+              )
+            })}
+            {selectedStates.length > 0 && (
+              <button
+                onClick={() => setSelectedStates([])}
+                style={{
+                  padding: '5px 12px',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  borderRadius: '999px',
+                  border: `1px solid ${colors.border}`,
+                  backgroundColor: 'transparent',
+                  color: colors.textMuted,
+                  cursor: 'pointer',
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Score type tabs */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '24px' }}>
@@ -188,7 +250,7 @@ function RankRow({ suburb, scoreType }: { suburb: RankedSuburb; scoreType: Score
         {/* Divider */}
         <div style={{ width: '1px', height: '40px', backgroundColor: colors.border, flexShrink: 0, display: 'none' }} className="md-divider" />
 
-        {/* Score */}
+        {/* Price / yield + score */}
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
           <div style={{ fontSize: '26px', fontWeight: 700, color: colors.pink, fontFamily: fonts.mono, lineHeight: 1 }}>
             {scoreLabel ?? '—'}
@@ -196,6 +258,20 @@ function RankRow({ suburb, scoreType }: { suburb: RankedSuburb; scoreType: Score
           <span style={{ color: colors.textMuted, fontSize: '10px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
             {scoreUnitLabel}
           </span>
+          {(suburb.median_house_price != null || suburb.gross_yield_house_pct != null) && (
+            <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+              {suburb.median_house_price != null && (
+                <span style={{ fontSize: '11px', fontWeight: 600, color: colors.textSecondary, fontFamily: fonts.mono }}>
+                  ${(suburb.median_house_price / 1_000_000).toFixed(2)}M
+                </span>
+              )}
+              {suburb.gross_yield_house_pct != null && (
+                <span style={{ fontSize: '11px', fontWeight: 600, color: colors.green, fontFamily: fonts.mono }}>
+                  {suburb.gross_yield_house_pct.toFixed(1)}% yield
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </Link>
