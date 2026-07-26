@@ -5,10 +5,6 @@ silently undercounting amenities in every downstream point-in-polygon join."""
 
 from __future__ import annotations
 
-import pytest
-
-pytest.importorskip("geopandas", reason="geopandas not installed — skip geometry loader tests")
-
 from shapely.geometry import Polygon
 
 from app.ingestion.geometry_loader import (

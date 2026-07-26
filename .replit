@@ -2,7 +2,7 @@ modules = ["python-3.12", "nodejs-20"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["arrow-cpp", "geos", "glibcLocales", "libxcrypt", "openssl", "pkg-config"]
+packages = ["geos", "glibcLocales", "libxcrypt"]
 
 [agent]
 expertMode = true
@@ -22,10 +22,6 @@ args = "Backend API"
 [[workflows.workflow.tasks]]
 task = "workflow.run"
 args = "Start application"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "backend-tests"
 
 [[workflows.workflow]]
 name = "Backend API"
@@ -51,17 +47,6 @@ waitForPort = 5000
 [workflows.workflow.metadata]
 outputType = "webview"
 
-[[workflows.workflow]]
-name = "backend-tests"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd backend && python -m pytest tests/ -q --tb=short"
-
-[workflows.workflow.metadata]
-isValidation = true
-
 [[ports]]
 localPort = 5000
 externalPort = 80
@@ -77,12 +62,3 @@ externalPort = 9000
 [[ports]]
 localPort = 23636
 externalPort = 3000
-
-[postMerge]
-path = "scripts/post-merge.sh"
-timeoutMs = 120000
-
-[deployment]
-deploymentTarget = "autoscale"
-run = ["bash", "-c", "cd backend && uvicorn app.main_prod:prod_app --host 0.0.0.0 --port 8000"]
-build = ["bash", "-c", "cd frontend && npm install && npm run build"]

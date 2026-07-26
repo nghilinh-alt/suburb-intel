@@ -32,7 +32,6 @@ from app.db.models import (
     PropertySale,
     SA2ProjectLink,
     SA2Region,
-    SuburbScore,
 )
 from app.db.session import get_db
 from app.services.momentum_service import fetch_neighborhood_momentum, fetch_sale_velocity
@@ -100,8 +99,6 @@ async def suburb_report(
         census_dict = _census_to_dict(m)
         risk_flags = analyze_risk_flags(gov_projects, census_dict)
         insight = generate_insight(scores, census_dict, gov_projects)
-
-        suburb_score_row = await db.get(SuburbScore, sa2_code)
 
         projects = await _fetch_projects_full(db, sa2_code)
         recent_sales = await _fetch_recent_sales(db, sa2_code)
@@ -188,10 +185,6 @@ async def suburb_report(
             "investment_snapshot": investment_snapshot,
             "risk_flags": risk_flags,
             "tags": _generate_tags(scores),
-            "scores": {
-                "resilience_score": suburb_score_row.resilience_score if suburb_score_row else None,
-                "housing_pressure_score": suburb_score_row.housing_pressure_score if suburb_score_row else None,
-            },
             "regional_comparison": regional_comparison,
             "location": {
                 "distance_to_cbd_km": region.distance_to_cbd_km,

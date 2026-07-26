@@ -84,8 +84,6 @@ interface DraftFilters {
   momentumPhase: MomentumPhase | ''
   growthYieldQuadrant: GrowthYieldQuadrant | ''
   minScarcityScore: string
-  minAmenityScore: string
-  maxBuildingApprovals1yr: string
 }
 
 const EMPTY_DRAFT: DraftFilters = {
@@ -117,8 +115,6 @@ const EMPTY_DRAFT: DraftFilters = {
   momentumPhase: '',
   growthYieldQuadrant: '',
   minScarcityScore: '',
-  minAmenityScore: '',
-  maxBuildingApprovals1yr: '',
 }
 
 // Large-value filter fields are entered in millions ($M) or thousands (k) in
@@ -159,8 +155,6 @@ function draftToFilters(d: DraftFilters): SuburbFilters {
     momentum_phase: d.momentumPhase || undefined,
     growth_yield_quadrant: d.growthYieldQuadrant || undefined,
     min_scarcity_score: num(d.minScarcityScore),
-    min_amenity_score: num(d.minAmenityScore),
-    max_building_approvals_1yr: d.maxBuildingApprovals1yr.trim() === '' ? undefined : parseInt(d.maxBuildingApprovals1yr, 10),
   }
 }
 
@@ -312,7 +306,16 @@ export default function SearchPage() {
   const activeFilterCount = countActiveFilters(draft)
 
   return (
-    <div>
+    <div
+      style={{
+        backgroundColor: colors.pageBg,
+        backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(15,23,42,0.06) 1px, transparent 0)',
+        backgroundSize: '18px 18px',
+        margin: '-20px',
+        padding: '20px',
+        minHeight: 'calc(100vh - 40px)',
+      }}
+    >
       <div style={{ marginBottom: '24px' }}>
         <FunnelStep step={1} total={3} label="Macro filter" />
         <h1 style={{ fontSize: '32px', margin: 0, color: colors.textPrimary }}>Search Suburbs</h1>
@@ -616,7 +619,7 @@ function FilterSidebar({
   }
 
   return (
-    <Card style={{ position: 'sticky', top: '84px', padding: '20px' }}>
+    <Card style={{ position: 'sticky', top: '20px', padding: '20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
         <h3 style={{ fontSize: '16px', fontWeight: 600, color: colors.textPrimary, margin: 0 }}>Filters</h3>
         {activeFilterCount > 0 && (
@@ -732,21 +735,13 @@ function FilterSidebar({
       />
       <MinFilter
         label="Investment Score"
-        hint="Composite 0–100 score: weights momentum (30%), scarcity (25%), yield (20%), demographics (15%), economic base (10%). Higher = stronger overall investment case."
         value={draft.minInvestmentScore}
         onChange={(v) => set('minInvestmentScore', v)}
       />
       <MinFilter
         label="Economic Score"
-        hint="Composite 0–100 score: median income, unemployment rate, employment diversity, and workforce participation. Captures the economic health of the resident base."
         value={draft.minEconomicScore}
         onChange={(v) => set('minEconomicScore', v)}
-      />
-      <MinFilter
-        label="Min Amenity Score"
-        hint="0–10 walkability/liveability score derived from Overture Maps POI density — cafes, schools, parks, transport, healthcare. Higher = more amenity-rich area."
-        value={draft.minAmenityScore}
-        onChange={(v) => set('minAmenityScore', v)}
       />
       <MaxFilter
         label="Days on Market"
@@ -815,15 +810,8 @@ function FilterSidebar({
           />
           <MinFilter
             label="Demographic Score"
-            hint="Composite 0–100 score: population growth trajectory, age mix (working-age density), education attainment, and renter/owner ratio. Captures demand-side demographic tailwinds."
             value={draft.minDemographicScore}
             onChange={(v) => set('minDemographicScore', v)}
-          />
-          <MaxFilter
-            label="Max Building Approvals (1yr)"
-            hint="New residential dwellings approved in the last financial year (ABS). Lower = less future supply being added — a proxy for supply scarcity in the near term."
-            value={draft.maxBuildingApprovals1yr}
-            onChange={(v) => set('maxBuildingApprovals1yr', v)}
           />
         </div>
       </details>
@@ -1112,34 +1100,11 @@ function SuburbTile({ suburb }: { suburb: FilteredSuburb }) {
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: '12px', marginTop: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-          {suburb.growth_1yr_house_pct != null && (
-            <span style={{
-              fontSize: '12px',
-              fontWeight: 600,
-              color: suburb.growth_1yr_house_pct >= 0 ? colors.green : colors.amber,
-            }}>
-              {suburb.growth_1yr_house_pct >= 0 ? '+' : ''}{suburb.growth_1yr_house_pct.toFixed(1)}% house (1yr)
-            </span>
-          )}
-          {suburb.pop_growth_5yr_pct != null && suburb.growth_1yr_house_pct == null && (
-            <span style={{ fontSize: '12px', fontWeight: 600, color: colors.green }}>
-              +{suburb.pop_growth_5yr_pct.toFixed(1)}% pop growth (5yr)
-            </span>
-          )}
-          {suburb.heat_score != null && (
-            <span style={{
-              fontSize: '11px',
-              fontWeight: 700,
-              color: suburb.heat_score >= 60 ? colors.rose : suburb.heat_score >= 35 ? colors.amber : colors.textMuted,
-              backgroundColor: suburb.heat_score >= 60 ? colors.roseLight : suburb.heat_score >= 35 ? colors.amberLight : '#f1f5f9',
-              padding: '2px 7px',
-              borderRadius: '999px',
-            }}>
-              🔥 Heat {Math.round(suburb.heat_score)}
-            </span>
-          )}
-        </div>
+        {suburb.pop_growth_5yr_pct != null && (
+          <div style={{ marginTop: '10px', fontSize: '12px', color: colors.green, fontWeight: 600 }}>
+            +{suburb.pop_growth_5yr_pct.toFixed(1)}% population growth (5yr)
+          </div>
+        )}
       </Card>
     </Link>
   )

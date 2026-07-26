@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Card } from '../components/primitives'
-import { getFilterOptions, getRankings, type RankedSuburb, type RankingsResponse, type ScoreType } from '../lib/api'
+import { Card, FunnelStep } from '../components/primitives'
+import { getRankings, type RankedSuburb, type RankingsResponse, type ScoreType } from '../lib/api'
 import { colors, fonts } from '../lib/theme'
 
 const SCORE_TABS: { value: ScoreType; label: string }[] = [
@@ -12,7 +12,7 @@ const SCORE_TABS: { value: ScoreType; label: string }[] = [
   { value: 'demographic_score', label: 'Demographic' },
   { value: 'housing_pressure_score', label: 'Housing Pressure' },
   { value: 'resilience_score', label: 'Resilience' },
-  { value: 'gov_investment_score', label: 'Gov. Investment' },
+  { value: 'gov_investment_score', label: 'Government Investment' },
 ]
 
 const QUADRANT_LABELS: Record<string, string> = {
@@ -30,143 +30,86 @@ type State =
 export default function RankingsPage() {
   const [scoreType, setScoreType] = useState<ScoreType>('momentum_score')
   const [state, setState] = useState<State>({ status: 'loading' })
-  const [availableStates, setAvailableStates] = useState<string[]>([])
-  const [selectedStates, setSelectedStates] = useState<string[]>([])
-
-  useEffect(() => {
-    getFilterOptions()
-      .then((opts) => setAvailableStates(opts.states))
-      .catch(() => setAvailableStates([]))
-  }, [])
 
   useEffect(() => {
     setState({ status: 'loading' })
-    getRankings(scoreType, 25, selectedStates.length > 0 ? selectedStates : undefined)
+    getRankings(scoreType, 25)
       .then((data) => setState({ status: 'ready', data }))
       .catch((err) =>
         setState({ status: 'error', message: err instanceof Error ? err.message : 'Failed to load rankings.' }),
       )
-  }, [scoreType, selectedStates])
-
-  function toggleState(s: string) {
-    setSelectedStates((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]))
-  }
+  }, [scoreType])
 
   return (
-    <div>
-      {/* Header */}
-      <div style={{ marginBottom: '28px' }}>
-        <h1 style={{ fontSize: '26px', fontWeight: 700, margin: '0 0 4px 0', color: colors.textPrimary, letterSpacing: '-0.02em' }}>
-          Top Suburbs
-        </h1>
-        <p style={{ color: colors.textMuted, fontSize: '14px', margin: 0 }}>
-          Ranked by momentum, supply/demand pressure, or composite score. Click a suburb for the full report, or{' '}
-          <Link to="/" style={{ color: colors.pink, fontWeight: 600, textDecoration: 'none' }}>
-            Search
-          </Link>{' '}
-          to refine filters.
-        </p>
-      </div>
-
-      {/* State filter */}
-      {availableStates.length > 0 && (
-        <div style={{ marginBottom: '20px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: colors.textMuted, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '8px' }}>
-            Filter by State
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-            {availableStates.map((s) => {
-              const active = selectedStates.includes(s)
-              return (
-                <button
-                  key={s}
-                  onClick={() => toggleState(s)}
-                  style={{
-                    padding: '5px 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '999px',
-                    border: `1px solid ${active ? colors.pink : colors.border}`,
-                    backgroundColor: active ? colors.pinkLight : colors.cardBg,
-                    color: active ? colors.pink : colors.textSecondary,
-                    cursor: 'pointer',
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  {s}
-                </button>
-              )
-            })}
-            {selectedStates.length > 0 && (
-              <button
-                onClick={() => setSelectedStates([])}
-                style={{
-                  padding: '5px 12px',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  borderRadius: '999px',
-                  border: `1px solid ${colors.border}`,
-                  backgroundColor: 'transparent',
-                  color: colors.textMuted,
-                  cursor: 'pointer',
-                }}
-              >
-                Clear
-              </button>
-            )}
-          </div>
+    <div
+      style={{
+        backgroundColor: colors.pageBg,
+        backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(15,23,42,0.06) 1px, transparent 0)',
+        backgroundSize: '18px 18px',
+        margin: '-20px',
+        padding: '20px',
+        minHeight: 'calc(100vh - 40px)',
+      }}
+    >
+      <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+        <div style={{ marginBottom: '24px' }}>
+          <FunnelStep step={2} total={3} label="Shortlist" />
+          <h1 style={{ fontSize: '32px', margin: 0, color: colors.textPrimary }}>Top Suburbs</h1>
+          <p style={{ color: colors.textMuted, fontSize: '14px', marginTop: '6px' }}>
+            Ranked by momentum, supply/demand pressure, or composite score — every row shows acceleration and growth/yield
+            positioning regardless of which you sort by. Click a suburb for the full deep-dive report, or head back to{' '}
+            <Link to="/" style={{ color: colors.pink, fontWeight: 600 }}>
+              Search
+            </Link>{' '}
+            to refine the macro filters.
+          </p>
         </div>
-      )}
 
-      {/* Score type tabs */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '24px' }}>
-        {SCORE_TABS.map((tab) => (
-          <button
-            key={tab.value}
-            onClick={() => setScoreType(tab.value)}
-            style={{
-              padding: '8px 16px',
-              fontSize: '13px',
-              fontWeight: 500,
-              borderRadius: '999px',
-              border: `1px solid ${scoreType === tab.value ? colors.pink : colors.border}`,
-              backgroundColor: scoreType === tab.value ? colors.pink : colors.cardBg,
-              color: scoreType === tab.value ? '#ffffff' : colors.textSecondary,
-              cursor: 'pointer',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-              transition: 'all 0.15s',
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '24px' }}>
+          {SCORE_TABS.map((tab) => (
+            <button
+              key={tab.value}
+              onClick={() => setScoreType(tab.value)}
+              style={{
+                padding: '10px 18px',
+                fontSize: '13px',
+                fontWeight: 600,
+                borderRadius: '999px',
+                border: `1px solid ${scoreType === tab.value ? colors.pink : colors.border}`,
+                backgroundColor: scoreType === tab.value ? colors.pinkLight : colors.cardBg,
+                color: scoreType === tab.value ? colors.pink : colors.textSecondary,
+                cursor: 'pointer',
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {state.status === 'loading' && <p style={{ color: colors.textMuted }}>Loading rankings...</p>}
+
+        {state.status === 'error' && (
+          <Card>
+            <p style={{ color: '#B91C1C', margin: 0 }}>{state.message}</p>
+          </Card>
+        )}
+
+        {state.status === 'ready' && (
+          <>
+            {state.data.rankings.length === 0 ? (
+              <Card>
+                <p style={{ color: colors.textMuted, margin: 0 }}>No ranked suburbs yet.</p>
+              </Card>
+            ) : (
+              <div style={{ display: 'grid', gap: '12px' }}>
+                {state.data.rankings.map((s) => (
+                  <RankRow key={s.sa2_code} suburb={s} scoreType={scoreType} />
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </div>
-
-      {state.status === 'loading' && (
-        <p style={{ color: colors.textMuted }}>Loading rankings…</p>
-      )}
-
-      {state.status === 'error' && (
-        <Card>
-          <p style={{ color: '#b91c1c', margin: 0 }}>{state.message}</p>
-        </Card>
-      )}
-
-      {state.status === 'ready' && (
-        <>
-          {state.data.rankings.length === 0 ? (
-            <Card>
-              <p style={{ color: colors.textMuted, margin: 0 }}>No ranked suburbs yet.</p>
-            </Card>
-          ) : (
-            <div style={{ display: 'grid', gap: '10px' }}>
-              {state.data.rankings.map((s) => (
-                <RankRow key={s.sa2_code} suburb={s} scoreType={scoreType} />
-              ))}
-            </div>
-          )}
-        </>
-      )}
     </div>
   )
 }
@@ -180,173 +123,90 @@ function RankRow({ suburb, scoreType }: { suburb: RankedSuburb; scoreType: Score
 
   return (
     <Link to={`/suburb/${suburb.sa2_code}`} style={{ textDecoration: 'none' }}>
-      <div
+      <Card
         style={{
-          backgroundColor: colors.cardBg,
-          border: `1px solid ${isTop ? colors.pink : colors.border}`,
-          borderRadius: '12px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-          padding: '16px 20px',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          gap: '16px',
-          transition: 'border-color 0.15s, box-shadow 0.15s',
-          cursor: 'pointer',
-        }}
-        onMouseEnter={(e) => {
-          (e.currentTarget as HTMLDivElement).style.borderColor = colors.pink
-          ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 12px rgba(99,102,241,0.12)'
-        }}
-        onMouseLeave={(e) => {
-          (e.currentTarget as HTMLDivElement).style.borderColor = isTop ? colors.pink : colors.border
-          ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)'
+          padding: '20px 24px',
+          border: `1px solid ${isTop ? colors.pink : colors.border}`,
         }}
       >
-        {/* Rank + suburb info */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, minWidth: 0 }}>
-          <span style={{
-            fontSize: '14px',
-            fontWeight: 700,
-            fontFamily: fonts.mono,
-            color: isTop ? colors.pink : colors.textMuted,
-            width: '28px',
-            textAlign: 'center',
-            flexShrink: 0,
-          }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <span
+            style={{
+              fontSize: '15px',
+              fontWeight: 700,
+              fontFamily: fonts.mono,
+              color: isTop ? colors.pink : colors.textMuted,
+              width: '32px',
+              textAlign: 'center',
+            }}
+          >
             #{suburb.rank}
           </span>
-
-          <div style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: 600, color: colors.textPrimary, margin: 0 }}>
-                {suburb.sa2_name}
-              </h3>
-              <span style={{
-                fontSize: '10px',
-                fontWeight: 700,
-                color: colors.textMuted,
-                backgroundColor: '#f1f5f9',
-                padding: '2px 6px',
-                borderRadius: '4px',
-                letterSpacing: '0.04em',
-              }}>
+          <div>
+            <h3 style={{ fontSize: '17px', fontWeight: 600, color: colors.textPrimary, margin: 0 }}>
+              {suburb.sa2_name}
+              <span style={{ color: colors.textMuted, fontWeight: 400, fontSize: '13px', marginLeft: '8px' }}>
                 {suburb.state}
               </span>
-            </div>
-            <p style={{ color: colors.textMuted, fontSize: '12px', margin: '2px 0 0 0', fontFamily: fonts.mono }}>
-              {suburb.sa2_code}
+            </h3>
+            <p style={{ color: colors.textMuted, fontSize: '12px', margin: '2px 0 0 0' }}>
+              SA2: {suburb.sa2_code}
               {suburb.distance_to_cbd_km != null && ` · ${suburb.distance_to_cbd_km.toFixed(1)} km to CBD`}
             </p>
             <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
               <MomentumBadge phase={suburb.momentum_phase} />
               {suburb.growth_yield_quadrant && (
-                <QuadrantBadge quadrant={suburb.growth_yield_quadrant} />
+                <Badge tone="neutral">{QUADRANT_LABELS[suburb.growth_yield_quadrant]}</Badge>
               )}
             </div>
           </div>
         </div>
-
-        {/* Divider */}
-        <div style={{ width: '1px', height: '40px', backgroundColor: colors.border, flexShrink: 0, display: 'none' }} className="md-divider" />
-
-        {/* Price / yield + score */}
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: colors.pink, fontFamily: fonts.mono, lineHeight: 1 }}>
-            {scoreLabel ?? '—'}
-          </div>
-          <span style={{ color: colors.textMuted, fontSize: '10px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-            {scoreUnitLabel}
-          </span>
-          {(suburb.median_house_price != null || suburb.gross_yield_house_pct != null) && (
-            <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
-              {suburb.median_house_price != null && (
-                <span style={{ fontSize: '11px', fontWeight: 600, color: colors.textSecondary, fontFamily: fonts.mono }}>
-                  ${(suburb.median_house_price / 1_000_000).toFixed(2)}M
-                </span>
-              )}
-              {suburb.gross_yield_house_pct != null && (
-                <span style={{ fontSize: '11px', fontWeight: 600, color: colors.green, fontFamily: fonts.mono }}>
-                  {suburb.gross_yield_house_pct.toFixed(1)}% yield
-                </span>
-              )}
-            </div>
-          )}
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: '28px', fontWeight: 700, color: colors.textPrimary, fontFamily: fonts.mono }}>{scoreLabel ?? '—'}</div>
+          <span style={{ color: colors.textMuted, fontSize: '11px' }}>{scoreUnitLabel}</span>
         </div>
-      </div>
+      </Card>
     </Link>
   )
 }
 
 function MomentumBadge({ phase }: { phase: RankedSuburb['momentum_phase'] }) {
   if (!phase) return null
-  const config: Record<string, { icon: string; label: string; bg: string; fg: string; border: string }> = {
-    accelerating: {
-      icon: '▲',
-      label: 'Accelerating',
-      bg: '#f0fdf4',
-      fg: '#15803d',
-      border: '#bbf7d0',
-    },
-    steady: {
-      icon: '→',
-      label: 'Steady',
-      bg: '#f8fafc',
-      fg: '#64748b',
-      border: '#e2e8f0',
-    },
-    cooling: {
-      icon: '▼',
-      label: 'Cooling',
-      bg: '#fffbeb',
-      fg: '#b45309',
-      border: '#fde68a',
-    },
-  }
-  const c = config[phase]
-  if (!c) return null
+  const config = {
+    accelerating: { arrow: '▲', label: 'Accelerating', tone: 'positive' as const },
+    steady: { arrow: '→', label: 'Steady', tone: 'neutral' as const },
+    cooling: { arrow: '▼', label: 'Cooling', tone: 'negative' as const },
+  }[phase]
   return (
-    <span style={{
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: '4px',
-      fontSize: '11px',
-      fontWeight: 600,
-      padding: '3px 9px',
-      borderRadius: '999px',
-      backgroundColor: c.bg,
-      color: c.fg,
-      border: `1px solid ${c.border}`,
-    }}>
-      {c.icon} {c.label}
+    <Badge tone={config.tone}>
+      {config.arrow} {config.label}
+    </Badge>
+  )
+}
+
+function Badge({ children, tone }: { children: React.ReactNode; tone: 'positive' | 'negative' | 'neutral' }) {
+  const toneColors = {
+    positive: { bg: colors.greenLight, fg: colors.green },
+    negative: { bg: colors.amberLight, fg: colors.amber },
+    neutral: { bg: colors.blueLight, fg: colors.blue },
+  }[tone]
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        fontSize: '11px',
+        fontWeight: 600,
+        padding: '3px 9px',
+        borderRadius: '999px',
+        backgroundColor: toneColors.bg,
+        color: toneColors.fg,
+      }}
+    >
+      {children}
     </span>
   )
 }
 
-function QuadrantBadge({ quadrant }: { quadrant: string }) {
-  const label = QUADRANT_LABELS[quadrant]
-  if (!label) return null
-
-  const style: Record<string, { bg: string; fg: string; border: string }> = {
-    hot: { bg: '#fff1f2', fg: '#be123c', border: '#fecdd3' },
-    growth_play: { bg: '#eff6ff', fg: '#1d4ed8', border: '#bfdbfe' },
-    cash_flow_play: { bg: '#f5f3ff', fg: '#6d28d9', border: '#ddd6fe' },
-    avoid: { bg: '#f8fafc', fg: '#64748b', border: '#e2e8f0' },
-  }
-  const s = style[quadrant] ?? style.avoid
-
-  return (
-    <span style={{
-      display: 'inline-block',
-      fontSize: '11px',
-      fontWeight: 600,
-      padding: '3px 9px',
-      borderRadius: '999px',
-      backgroundColor: s.bg,
-      color: s.fg,
-      border: `1px solid ${s.border}`,
-    }}>
-      {label}
-    </span>
-  )
-}

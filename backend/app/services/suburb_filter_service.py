@@ -61,8 +61,6 @@ class SuburbFilters:
     momentum_phase: Optional[str] = None
     growth_yield_quadrant: Optional[str] = None
     min_scarcity_score: Optional[float] = None
-    min_amenity_score: Optional[float] = None
-    max_building_approvals_1yr: Optional[int] = None
 
 
 _DEFAULT_SORT = "population"
@@ -93,8 +91,6 @@ async def search_suburbs_filtered(
             func.avg(SuburbMarketStats.days_on_market_house).label("avg_days_on_market_house"),
             func.avg(SuburbMarketStats.gross_yield_house_pct).label("avg_gross_yield_house_pct"),
             func.avg(SuburbMarketStats.vacancy_rate_pct).label("avg_vacancy_rate_pct"),
-            func.avg(SuburbMarketStats.growth_house_1y_pct).label("avg_growth_house_1y_pct"),
-            func.avg(SuburbMarketStats.heat_score_house).label("avg_heat_score_house"),
         )
         .group_by(SuburbMarketStats.sa2_code)
         .subquery()
@@ -116,8 +112,6 @@ async def search_suburbs_filtered(
             ABSCEntensMetrics.avg_school_icsea,
             ABSCEntensMetrics.pop_growth_5yr,
             ABSCEntensMetrics.pop_growth_proj_pct,
-            ABSCEntensMetrics.amenity_score,
-            ABSCEntensMetrics.building_approvals_1yr,
             SuburbScore.investment_score,
             SuburbScore.economic_score,
             SuburbScore.demographic_score,
@@ -131,8 +125,6 @@ async def search_suburbs_filtered(
             market_agg.c.avg_days_on_market_house,
             market_agg.c.avg_gross_yield_house_pct,
             market_agg.c.avg_vacancy_rate_pct,
-            market_agg.c.avg_growth_house_1y_pct,
-            market_agg.c.avg_heat_score_house,
         )
         .select_from(SA2Region)
         .join(
@@ -238,10 +230,6 @@ def _apply_filters(stmt, filters: SuburbFilters, market_agg):
         stmt = stmt.where(SuburbScore.growth_yield_quadrant == f.growth_yield_quadrant)
     if f.min_scarcity_score is not None:
         stmt = stmt.where(SuburbScore.scarcity_score >= f.min_scarcity_score)
-    if f.min_amenity_score is not None:
-        stmt = stmt.where(ABSCEntensMetrics.amenity_score >= f.min_amenity_score)
-    if f.max_building_approvals_1yr is not None:
-        stmt = stmt.where(ABSCEntensMetrics.building_approvals_1yr <= f.max_building_approvals_1yr)
     return stmt
 
 
@@ -274,8 +262,4 @@ def _row_to_dict(row) -> Dict[str, Any]:
         "scarcity_score": row.scarcity_score,
         "gross_yield_house_pct": row.avg_gross_yield_house_pct,
         "vacancy_rate_pct": row.avg_vacancy_rate_pct,
-        "growth_1yr_house_pct": row.avg_growth_house_1y_pct,
-        "heat_score": row.avg_heat_score_house,
-        "amenity_score": row.amenity_score,
-        "building_approvals_1yr": row.building_approvals_1yr,
     }

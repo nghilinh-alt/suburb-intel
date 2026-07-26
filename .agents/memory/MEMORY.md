@@ -1,2 +1,0 @@
-- [Post-merge setup](post-merge-setup.md) — script at scripts/post-merge.sh, configured 120s timeout; runs npm install + uv pip install.
-- [Backend test suite](backend-tests.md) — 64 tests (pytest), all pass; run with `cd backend && DATABASE_URL='sqlite+aiosqlite:///./suburb_intel_dev.db' python -m pytest`.

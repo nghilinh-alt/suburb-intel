@@ -1,33 +1,37 @@
-// Clean Platform theme — indigo accent, slate typography, white cards on slate-50 page.
+// Light theme for the suburb report page, matching picki.com.au's palette:
+// white cards on a soft gray page background, pink as the primary/CTA accent,
+// blue as secondary, green for positive indicators.
 export const colors = {
-  pageBg: '#f8fafc',
+  pageBg: '#F3F4F6',
   cardBg: '#FFFFFF',
-  border: '#e2e8f0',
-  textPrimary: '#0f172a',
-  textSecondary: '#64748b',
-  textMuted: '#94a3b8',
-  // Primary accent — indigo
-  pink: '#6366f1',
-  pinkLight: '#eef2ff',
-  // Secondary — blue
-  blue: '#3b82f6',
-  blueLight: '#eff6ff',
-  // Positive — emerald
-  green: '#10b981',
-  greenLight: '#d1fae5',
-  // Warning — amber
-  amber: '#d97706',
-  amberLight: '#fef3c7',
-  // Danger/hot
-  rose: '#e11d48',
-  roseLight: '#fff1f2',
+  border: '#E5E7EB',
+  textPrimary: '#111827',
+  textSecondary: '#6B7280',
+  textMuted: '#9CA3AF',
+  pink: '#EC018C',
+  pinkLight: '#FDE8F5',
+  blue: '#2E58A6',
+  blueLight: '#E7EDF8',
+  green: '#00A94F',
+  greenLight: '#E3F9EC',
+  amber: '#B45309',
+  amberLight: '#FEF3C7',
 }
 
-// Monospace stack for numeric figures — tabular figures line up in dense grids.
+// Monospace stack for numeric figures (prices, percentages, scores) — tabular
+// figures line up in dense grids/tables the way a proportional font can't.
+// Falls back through common pre-installed monospace fonts rather than
+// bundling a webfont (Phase 3 density pass, WS2 §4 "Bloomberg terminal"
+// reference point).
 export const fonts = {
   mono: "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
 }
 
+// Spacing/sizing tokens for the denser variants introduced in the Phase 3
+// density pass — used alongside (not instead of) the ad-hoc inline styles
+// already in each page. Compact values are deliberately ~2/3 of the
+// pre-existing defaults (24px card padding, 16px grid gap, 160px stat
+// column), not an arbitrary redesign.
 export const density = {
   cardPaddingCompact: '16px',
   gridGapCompact: '10px',

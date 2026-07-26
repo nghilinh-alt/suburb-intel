@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5000,
-    host: true,
+    host: '0.0.0.0',
     allowedHosts: true,
     proxy: {
       // The frontend hits /api/<path> to dodge CORS in dev; vite strips the
