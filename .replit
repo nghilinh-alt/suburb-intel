@@ -71,9 +71,18 @@ localPort = 8000
 externalPort = 8000
 
 [[ports]]
+localPort = 9000
+externalPort = 9000
+
+[[ports]]
 localPort = 23636
 externalPort = 3000
 
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 120000
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["bash", "-c", "cd backend && uvicorn app.main_prod:prod_app --host 0.0.0.0 --port 8000"]
+build = ["bash", "-c", "cd frontend && npm install && npm run build"]
