@@ -120,22 +120,25 @@ def seed_database_sync():
         
         session = get_sync_session()
         
-        # Insert SA2 regions
+        # Insert SA2 regions first and flush so FK references resolve
         for sa2 in sa2_data:
             region = models.SA2Region(**sa2)
             session.add(region)
+        session.flush()
         
-        # Insert census metrics
+        # Insert census metrics (FK -> sa2_regions)
         for census in census_data:
             metric = models.ABSCEntensMetrics(**census)
             session.add(metric)
+        session.flush()
         
-        # Insert infrastructure projects
+        # Insert infrastructure projects and flush so link FKs resolve
         for infra in infrastructure_data:
             project = models.InfrastructureProject(**infra)
             session.add(project)
+        session.flush()
         
-        # Insert links
+        # Insert links (FK -> sa2_regions + infrastructure_projects)
         for link in link_data:
             sa2_link = models.SA2ProjectLink(**link)
             session.add(sa2_link)
@@ -149,7 +152,8 @@ def seed_database_sync():
         print(f"Inserted {len(link_data)} project links")
         
     except SQLAlchemyError as e:
-        print(f"Database seeding encountered an error: {e}")
+        session.rollback()
+        raise RuntimeError(f"Database seeding failed: {e}") from e
 
 
 if __name__ == "__main__":
