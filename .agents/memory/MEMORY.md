@@ -1,0 +1,4 @@
+- [Dev database seeding](dev-db-seeding.md) — dev DB starts empty; must run seed script manually after each container reset.
+- [Production entrypoint](prod-entrypoint.md) — backend/app/main_prod.py serves API at /api/* + React SPA; autoscale+SQLite incompatible.
+- [GitHub push](github-push.md) — classic PAT (ghp_...) with repo scope stored as GITHUB_PAT secret; fine-grained PATs caused repeated 401s.
+- [Backend test suite](backend-tests.md) — 287 tests (pytest); run with `cd backend && DATABASE_URL='sqlite+aiosqlite:///./suburb_intel_dev.db' python -m pytest`.
