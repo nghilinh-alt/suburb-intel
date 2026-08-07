@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -54,6 +55,15 @@ _AU_BBOX = (112.0, -44.5, 155.0, -9.0)
 # "department_store" is deliberately excluded — it matches individual anchor
 # stores (Myer, Target, David Jones) inside a mall, not the complex itself,
 # which just produced 5-8 duplicate near-identical entries per real mall.
+#
+# NOTE: several of these categories are self-tag noise magnets — Overture lets
+# any business pick its own primary category, so "shopping_center" collects
+# individual retailers (a keyboard shop, a sunglasses reseller, a solar-parts
+# maker) and "venue_and_event_space" collects logistics/marine/office
+# businesses. "venue_and_event_space" is dropped entirely below (no reliable
+# way to keep only genuine attractions), and Shopping Centre / the generic
+# Stadium bucket get name-based precision filters in `_passes_quality_filter`
+# — same precision-over-recall trade-off already used for `_is_real_hospital`.
 _OVERTURE_POI_CATEGORIES: dict[str, str] = {
     # ── Hospitals (major facilities only — GPs/clinics stay in the amenity
     #    counts section, this is landmark-scale). Overture's "hospital"
@@ -80,7 +90,6 @@ _OVERTURE_POI_CATEGORIES: dict[str, str] = {
     "zoo": "Attraction",
     "aquarium": "Attraction",
     "casino": "Attraction",
-    "venue_and_event_space": "Attraction",
     "museum": "Attraction",
     "history_museum": "Attraction",
     "art_museum": "Attraction",
@@ -162,6 +171,68 @@ def _is_real_hospital(name: str, group_label: str) -> bool:
     return "hospital" in name.lower()
 
 
+# Name tokens that mark a genuine shopping complex, as opposed to the many
+# individual small retailers Overture self-tags as "shopping_center". Word-
+# boundary matched so "mall" doesn't fire on "small" and "shopping" catches
+# "Shoppingtown"/"Shopping Village"/"Shopping Plaza" alike.
+_SHOPPING_CENTRE_TOKENS: tuple[str, ...] = (
+    "shopping",
+    "shoppingtown",
+    "marketplace",
+    "market place",
+    "plaza",
+    "arcade",
+    "mall",
+    "westfield",
+    "homemaker",
+    "megacentre",
+    "mega centre",
+    "harbour town",
+    "outlet",
+    "dfo",
+)
+
+# Name tokens for a genuine sporting venue. Only applied to Overture's generic
+# "stadium_arena" catch-all (a social-play badminton centre self-tags into it);
+# the sport-specific categories (football_stadium, rugby_stadium, ...) are
+# trustworthy on their own and are NOT name-filtered, so venues with names like
+# "The Gabba" survive.
+_STADIUM_TOKENS: tuple[str, ...] = (
+    "stadium",
+    "arena",
+    "oval",
+    "ground",
+    "showground",
+    "velodrome",
+    "racecourse",
+    "raceway",
+    "speedway",
+    "aquatic",
+)
+
+
+def _name_has_token(name: str, tokens: tuple[str, ...]) -> bool:
+    low = name.lower()
+    return any(re.search(rf"\b{re.escape(tok)}\b", low) for tok in tokens)
+
+
+def _passes_quality_filter(name: str, category: str, group_label: str) -> bool:
+    """Precision filter for Overture's noisiest self-tag POI categories.
+
+    Overture carries no size/type signal to separate a landmark from a small
+    business that picked the same primary category, so we fall back to a name
+    heuristic per group — trading recall for precision, the same call already
+    made in `_is_real_hospital`.
+    """
+    if group_label == "Hospital":
+        return _is_real_hospital(name, group_label)
+    if group_label == "Shopping Centre":
+        return _name_has_token(name, _SHOPPING_CENTRE_TOKENS)
+    if group_label == "Stadium & Arena" and category == "stadium_arena":
+        return _name_has_token(name, _STADIUM_TOKENS)
+    return True
+
+
 def load_points_of_interest(db: Session, places_path: Path) -> PoiLoadReport:
     report = PoiLoadReport()
 
@@ -170,7 +241,10 @@ def load_points_of_interest(db: Session, places_path: Path) -> PoiLoadReport:
     places_df["group_label"] = places_df["category"].map(_OVERTURE_POI_CATEGORIES)
     places_df = places_df.dropna(subset=["group_label", "name", "lat", "lon"])
     places_df = places_df[
-        places_df.apply(lambda r: _is_real_hospital(r["name"], r["group_label"]), axis=1)
+        places_df.apply(
+            lambda r: _passes_quality_filter(r["name"], r["category"], r["group_label"]),
+            axis=1,
+        )
     ]
     report.places_loaded = len(places_df)
 

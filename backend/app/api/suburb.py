@@ -42,6 +42,7 @@ from app.services.property_market_service import (
     fetch_price_history,
     fetch_price_history_by_spec,
 )
+from app.services.neighbour_comparison_service import fetch_neighbour_comparison
 from app.services.regional_comparison_service import fetch_regional_comparison
 from app.services.school_rating_service import fetch_school_percentile
 from app.services.points_of_interest_service import fetch_points_of_interest
@@ -171,6 +172,7 @@ async def suburb_report(
         neighborhood_momentum = await fetch_neighborhood_momentum(db, sa2_code)
         rental_market = await fetch_rental_market_history(db, sa2_code)
         regional_comparison = await fetch_regional_comparison(db, sa2_code)
+        neighbour_comparison = await fetch_neighbour_comparison(db, sa2_code)
         schools = await fetch_schools(db, sa2_code)
         school_percentile = await fetch_school_percentile(db, sa2_code)
         points_of_interest = await fetch_points_of_interest(db, sa2_code)
@@ -186,6 +188,7 @@ async def suburb_report(
             "risk_flags": risk_flags,
             "tags": _generate_tags(scores),
             "regional_comparison": regional_comparison,
+            "neighbour_comparison": neighbour_comparison,
             "location": {
                 "distance_to_cbd_km": region.distance_to_cbd_km,
             },

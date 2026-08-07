@@ -1,8 +1,8 @@
 diff --git a/backend/app/api/suburb.py b/backend/app/api/suburb.py
-index f2a98dc..cd6a4ad 100644
+index ad8e605..d55fc65 100644
 --- a/backend/app/api/suburb.py
 +++ b/backend/app/api/suburb.py
-@@ -43,6 +43,7 @@ from app.services.property_market_service import (
+@@ -42,6 +42,7 @@ from app.services.property_market_service import (
      fetch_price_history,
      fetch_price_history_by_spec,
  )
@@ -10,7 +10,7 @@ index f2a98dc..cd6a4ad 100644
  from app.services.regional_comparison_service import fetch_regional_comparison
  from app.services.school_rating_service import fetch_school_percentile
  from app.services.points_of_interest_service import fetch_points_of_interest
-@@ -174,6 +175,7 @@ async def suburb_report(
+@@ -171,6 +172,7 @@ async def suburb_report(
          neighborhood_momentum = await fetch_neighborhood_momentum(db, sa2_code)
          rental_market = await fetch_rental_market_history(db, sa2_code)
          regional_comparison = await fetch_regional_comparison(db, sa2_code)
@@ -18,9 +18,9 @@ index f2a98dc..cd6a4ad 100644
          schools = await fetch_schools(db, sa2_code)
          school_percentile = await fetch_school_percentile(db, sa2_code)
          points_of_interest = await fetch_points_of_interest(db, sa2_code)
-@@ -193,6 +195,7 @@ async def suburb_report(
-                 "housing_pressure_score": suburb_score_row.housing_pressure_score if suburb_score_row else None,
-             },
+@@ -186,6 +188,7 @@ async def suburb_report(
+             "risk_flags": risk_flags,
+             "tags": _generate_tags(scores),
              "regional_comparison": regional_comparison,
 +            "neighbour_comparison": neighbour_comparison,
              "location": {
@@ -440,11 +440,24 @@ index a0faf44..eb6bea1 100644
          </span>
          <span>{formatValue(max)}</span>
        </div>
+diff --git a/frontend/src/lib/theme.ts b/frontend/src/lib/theme.ts
+index fc3a55f..f3b2b76 100644
+--- a/frontend/src/lib/theme.ts
++++ b/frontend/src/lib/theme.ts
+@@ -16,6 +16,8 @@ export const colors = {
+   greenLight: '#E3F9EC',
+   amber: '#B45309',
+   amberLight: '#FEF3C7',
++  rose: '#E11D48',
++  roseLight: '#FDE4E8',
+ }
+ 
+ // Monospace stack for numeric figures (prices, percentages, scores) — tabular
 diff --git a/frontend/src/pages/SuburbPage.tsx b/frontend/src/pages/SuburbPage.tsx
-index 5b052ef..6cc8839 100644
+index be4f618..897055d 100644
 --- a/frontend/src/pages/SuburbPage.tsx
 +++ b/frontend/src/pages/SuburbPage.tsx
-@@ -225,6 +225,27 @@ interface RegionalComparison {
+@@ -216,6 +216,27 @@ interface RegionalComparison {
    metrics: RegionalMetric[]
  }
  
@@ -472,15 +485,15 @@ index 5b052ef..6cc8839 100644
  interface InvestmentHighlight {
    label: string
    format: 'text' | 'pct' | 'rate' | 'score' | 'days'
-@@ -342,6 +363,7 @@ interface SuburbReport {
+@@ -332,6 +353,7 @@ interface SuburbReport {
+   risk_flags: string[]
    tags: string[]
-   scores: SuburbScores | null
    regional_comparison: RegionalComparison | null
 +  neighbour_comparison: NeighbourComparison | null
    location: { distance_to_cbd_km: number | null }
    momentum: Momentum
    market_stats: SuburbMarketStat[]
-@@ -386,6 +408,12 @@ function fmtDecile(v: number | null | undefined): string {
+@@ -376,6 +398,12 @@ function fmtDecile(v: number | null | undefined): string {
  function fmtDays(v: number | null | undefined): string {
    return v == null ? '—' : `${Math.round(v)} days`
  }
@@ -493,15 +506,15 @@ index 5b052ef..6cc8839 100644
  function titleCase(s: string): string {
    return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
  }
-@@ -684,6 +712,7 @@ function ReadyView({ data }: { data: SuburbReport }) {
+@@ -659,6 +687,7 @@ function ReadyView({ data }: { data: SuburbReport }) {
+     risk_flags,
      tags,
-     scores,
      regional_comparison,
 +    neighbour_comparison,
      momentum,
      market_stats,
      rental_market,
-@@ -1456,6 +1485,55 @@ function ReadyView({ data }: { data: SuburbReport }) {
+@@ -1399,6 +1428,55 @@ function ReadyView({ data }: { data: SuburbReport }) {
          </Section>
        )}
  

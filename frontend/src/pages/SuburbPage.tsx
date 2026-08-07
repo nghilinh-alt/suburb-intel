@@ -216,6 +216,27 @@ interface RegionalComparison {
   metrics: RegionalMetric[]
 }
 
+interface NeighbourMetric {
+  key: string
+  label: string
+  format: 'currency' | 'pct' | 'days'
+  higher_is_better: boolean | null
+}
+
+interface NeighbourSuburb {
+  sa2_code: string
+  name: string
+  is_subject: boolean
+  distance_km: number | null
+  values: Record<string, number | null>
+}
+
+interface NeighbourComparison {
+  subject_sa2_code: string
+  metrics: NeighbourMetric[]
+  suburbs: NeighbourSuburb[]
+}
+
 interface InvestmentHighlight {
   label: string
   format: 'text' | 'pct' | 'rate' | 'score' | 'days'
@@ -332,6 +353,7 @@ interface SuburbReport {
   risk_flags: string[]
   tags: string[]
   regional_comparison: RegionalComparison | null
+  neighbour_comparison: NeighbourComparison | null
   location: { distance_to_cbd_km: number | null }
   momentum: Momentum
   market_stats: SuburbMarketStat[]
@@ -375,6 +397,12 @@ function fmtDecile(v: number | null | undefined): string {
 }
 function fmtDays(v: number | null | undefined): string {
   return v == null ? '—' : `${Math.round(v)} days`
+}
+function fmtNeighbourMetric(format: NeighbourMetric['format'], v: number | null): string {
+  if (v == null) return '—'
+  if (format === 'currency') return fmtCurrency(v)
+  if (format === 'pct') return fmtPct(v)
+  return fmtDays(v)
 }
 function titleCase(s: string): string {
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
@@ -659,6 +687,7 @@ function ReadyView({ data }: { data: SuburbReport }) {
     risk_flags,
     tags,
     regional_comparison,
+    neighbour_comparison,
     momentum,
     market_stats,
     rental_market,
@@ -1398,6 +1427,55 @@ function ReadyView({ data }: { data: SuburbReport }) {
           </div>
         </Section>
       )}
+
+      {neighbour_comparison && neighbour_comparison.suburbs.length > 1 && (() => {
+        const cols = `minmax(120px, 1.6fr) repeat(${neighbour_comparison.metrics.length}, 1fr)`
+        return (
+          <Section
+            title={`${primarySuburbName(sa2_name)} vs Neighbouring Suburbs`}
+            subtitle="Adjacent suburbs, nearest first. Figures are PropRadar's latest suburb-level snapshot; a combined SA2 is averaged across its suburbs."
+          >
+            <div style={{ display: 'grid', gap: '2px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: cols, gap: '8px', padding: '4px 12px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: colors.textMuted, textTransform: 'uppercase' }}>Suburb</span>
+                {neighbour_comparison.metrics.map((mt) => (
+                  <span key={mt.key} style={{ fontSize: '11px', fontWeight: 600, color: colors.textMuted, textTransform: 'uppercase', textAlign: 'right' }}>
+                    {mt.label}
+                  </span>
+                ))}
+              </div>
+              {neighbour_comparison.suburbs.map((sub) => (
+                <div
+                  key={sub.sa2_code}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: cols,
+                    gap: '8px',
+                    alignItems: 'baseline',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    backgroundColor: sub.is_subject ? colors.pinkLight : colors.pageBg,
+                  }}
+                >
+                  <span style={{ fontSize: '14px', color: colors.textPrimary, fontWeight: sub.is_subject ? 700 : 500 }}>
+                    {primarySuburbName(sub.name)}
+                    {sub.is_subject ? (
+                      <span style={{ fontSize: '11px', color: colors.pink, marginLeft: '6px' }}>this suburb</span>
+                    ) : sub.distance_km != null ? (
+                      <span style={{ fontSize: '11px', color: colors.textMuted, marginLeft: '6px' }}>{sub.distance_km} km</span>
+                    ) : null}
+                  </span>
+                  {neighbour_comparison.metrics.map((mt) => (
+                    <span key={mt.key} style={{ fontSize: '14px', textAlign: 'right', fontFamily: fonts.mono, color: colors.textPrimary }}>
+                      {fmtNeighbourMetric(mt.format, sub.values[mt.key] ?? null)}
+                    </span>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </Section>
+        )
+      })()}
 
       {show_census_sections && (
       <>

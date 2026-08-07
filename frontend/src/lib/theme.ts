@@ -16,6 +16,8 @@ export const colors = {
   greenLight: '#E3F9EC',
   amber: '#B45309',
   amberLight: '#FEF3C7',
+  rose: '#E11D48',
+  roseLight: '#FDE4E8',
 }
 
 // Monospace stack for numeric figures (prices, percentages, scores) — tabular

@@ -279,69 +279,118 @@ export function ContextRuler({
   const valuePct = clampPct(value)
   const baselinePct = clampPct(baseline)
 
-  let markerColor: string = colors.blue
-  if (higherIsBetter != null) {
-    const isBetter = higherIsBetter ? value >= baseline : value <= baseline
-    markerColor = isBetter ? colors.green : colors.amber
-  }
+  // Good/bad only exists when the metric has a direction. `null` = neutral
+  // (e.g. median price — dearer is neither good nor bad on its own).
+  const isBetter =
+    higherIsBetter == null ? null : higherIsBetter ? value >= baseline : value <= baseline
+  const markerColor = isBetter == null ? colors.blue : isBetter ? colors.green : colors.amber
+  const deltaColor = isBetter == null ? colors.textSecondary : isBetter ? colors.green : colors.amber
+
+  // Plain-language comparison — the actual point of the ruler, e.g. "18% above
+  // national median". Spelled out in words so the colour isn't load-bearing.
+  const pctDiff = baseline ? ((value - baseline) / Math.abs(baseline)) * 100 : 0
+  const deltaText =
+    Math.abs(pctDiff) < 1
+      ? `in line with ${baselineLabel}`
+      : `${Math.abs(pctDiff).toFixed(0)}% ${value > baseline ? 'above' : 'below'} ${baselineLabel}`
+
+  // Directional track: reddish (worse) → greenish (better), flipped when lower
+  // is better; a neutral ramp when the metric has no inherent direction.
+  const trackBackground =
+    isBetter == null
+      ? `linear-gradient(90deg, ${colors.blueLight}, ${colors.pageBg})`
+      : higherIsBetter
+        ? `linear-gradient(90deg, ${colors.roseLight}, ${colors.pageBg} 55%, ${colors.greenLight})`
+        : `linear-gradient(90deg, ${colors.greenLight}, ${colors.pageBg} 45%, ${colors.roseLight})`
+
+  // Keep the baseline caption on-screen when its tick sits near either edge.
+  const captionLeft = baselinePct > 85 ? 'auto' : baselinePct < 15 ? '0' : `${baselinePct}%`
+  const captionRight = baselinePct > 85 ? '0' : 'auto'
+  const captionAlign: 'left' | 'center' | 'right' =
+    baselinePct < 15 ? 'left' : baselinePct > 85 ? 'right' : 'center'
+  const captionTransform = baselinePct >= 15 && baselinePct <= 85 ? 'translateX(-50%)' : 'none'
 
   return (
     <div style={{ width: '100%' }}>
       {label && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px', fontSize: '13px' }}>
           <span style={{ color: colors.textSecondary }}>{label}</span>
           <span style={{ color: colors.textPrimary, fontWeight: 600 }}>{formatValue(value)}</span>
         </div>
       )}
+      <div style={{ fontSize: '12px', fontWeight: 600, color: deltaColor, marginTop: '2px' }}>{deltaText}</div>
       <div
         style={{
           position: 'relative',
-          height: '6px',
+          height: '8px',
           borderRadius: '999px',
-          backgroundColor: colors.pageBg,
+          background: trackBackground,
+          border: `1px solid ${colors.border}`,
           marginTop: '10px',
         }}
       >
+        {/* national-median reference tick */}
         <div
           title={`${baselineLabel}: ${formatValue(baseline)}`}
           style={{
             position: 'absolute',
             left: `${baselinePct}%`,
-            top: '-3px',
+            top: '-4px',
             width: '2px',
-            height: '12px',
-            backgroundColor: colors.textMuted,
+            height: '16px',
+            backgroundColor: colors.textSecondary,
             transform: 'translateX(-1px)',
           }}
         />
+        {/* this-suburb marker */}
         <div
           title={`This suburb: ${formatValue(value)}`}
           style={{
             position: 'absolute',
             left: `${valuePct}%`,
-            top: '-4px',
-            width: '12px',
-            height: '12px',
+            top: '-5px',
+            width: '18px',
+            height: '18px',
             borderRadius: '50%',
             backgroundColor: markerColor,
             border: '2px solid #FFFFFF',
-            boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
-            transform: 'translateX(-6px)',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+            transform: 'translateX(-9px)',
           }}
         />
       </div>
+      {/* baseline caption, anchored under its tick */}
+      <div style={{ position: 'relative', height: '14px', marginTop: '5px' }}>
+        <span
+          style={{
+            position: 'absolute',
+            left: captionLeft,
+            right: captionRight,
+            textAlign: captionAlign,
+            transform: captionTransform,
+            fontSize: '10px',
+            color: colors.textMuted,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          ▏{baselineLabel} {formatValue(baseline)}
+        </span>
+      </div>
+      {/* scale endpoints + this-suburb legend */}
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
-          fontSize: '11px',
+          alignItems: 'center',
+          fontSize: '10px',
           color: colors.textMuted,
-          marginTop: '6px',
+          marginTop: '2px',
         }}
       >
         <span>{formatValue(min)}</span>
-        <span>
-          {baselineLabel}: {formatValue(baseline)}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: markerColor, display: 'inline-block' }} />
+          this suburb
         </span>
         <span>{formatValue(max)}</span>
       </div>
