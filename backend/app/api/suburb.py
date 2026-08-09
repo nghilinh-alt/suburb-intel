@@ -39,6 +39,7 @@ from app.services.property_market_service import (
     fetch_detailed_specs,
     fetch_house_type_breakdown,
     fetch_land_size_breakdown,
+    fetch_price_by_type_bedroom,
     fetch_price_history,
     fetch_price_history_by_spec,
 )
@@ -108,6 +109,7 @@ async def suburb_report(
         house_type_breakdown = await fetch_house_type_breakdown(db, sa2_code)
         detailed_specs = await fetch_detailed_specs(db, sa2_code)
         land_size_breakdown = await fetch_land_size_breakdown(db, sa2_code)
+        price_by_type_bedroom = await fetch_price_by_type_bedroom(db, sa2_code)
         sale_velocity = await fetch_sale_velocity(db, sa2_code)
         market_stats = await fetch_suburb_market_stats(db, sa2_code)
         supply_scarcity = [
@@ -210,6 +212,7 @@ async def suburb_report(
                 "price_history_by_spec": price_history_by_spec,
                 "detailed_specs": detailed_specs,
                 "land_size_breakdown": land_size_breakdown,
+                "by_type_bedroom": price_by_type_bedroom,
             },
             "investment_outlook": {
                 "pop_growth_5yr": m.pop_growth_5yr,

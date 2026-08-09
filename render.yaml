@@ -1,0 +1,13 @@
+﻿services:
+  - type: web
+    name: suburb-intel-test
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: DB_DOWNLOAD_URL
+        sync: false
+      - key: BASIC_AUTH_USER
+        sync: false
+      - key: BASIC_AUTH_PASS
+        sync: false

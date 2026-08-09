@@ -6,7 +6,7 @@ the loader runs.
 
 from __future__ import annotations
 
-from statistics import median
+from statistics import mean, median
 from typing import Any, Dict, List
 
 from sqlalchemy import select
@@ -15,6 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import PropertySale
 
 _MAX_HISTORY_MONTHS = 60  # 5 years
+
+# Bedrooms at or above this collapse into a single "N+" bucket.
+_MAX_BED_BUCKET = 6
 
 
 async def fetch_price_history(db: AsyncSession, sa2_code: str) -> List[Dict[str, Any]]:
@@ -105,6 +108,48 @@ def _house_type_label(property_type: str | None, bedrooms: int | None) -> str | 
     if bedrooms <= 4:
         return f"2-4 Bed {type_label}"
     return f"5+ Bed {type_label}"
+
+
+async def fetch_price_by_type_bedroom(db: AsyncSession, sa2_code: str) -> Dict[str, Any]:
+    """Median & average sold price per (property type, bedroom count), with each
+    segment ratio (suburb_median / group_median) against the suburb-wide median
+    of all sold listings. Empty until property_sales has data for this SA2."""
+    stmt = select(PropertySale.property_type, PropertySale.bedrooms, PropertySale.sold_price).where(
+        PropertySale.sa2_code == sa2_code,
+        PropertySale.property_type.isnot(None),
+        PropertySale.bedrooms.isnot(None),
+        PropertySale.sold_price.isnot(None),
+    )
+    rows = (await db.execute(stmt)).all()
+    if not rows:
+        return {"suburb_median": None, "groups": []}
+
+    suburb_median = round(median([price for _, _, price in rows]))
+
+    buckets: Dict[tuple, List[int]] = {}
+    for property_type, bedrooms, sold_price in rows:
+        type_label = _TYPE_LABELS.get(property_type.lower(), property_type.title())
+        bed = min(bedrooms, _MAX_BED_BUCKET)
+        buckets.setdefault((type_label, bed), []).append(sold_price)
+
+    groups: List[Dict[str, Any]] = []
+    for (type_label, bed), prices in buckets.items():
+        group_median = round(median(prices))
+        bed_label = f"{_MAX_BED_BUCKET}+" if bed >= _MAX_BED_BUCKET else str(bed)
+        groups.append(
+            {
+                "type": type_label,
+                "bedrooms": bed,
+                "label": f"{bed_label} Bed {type_label}",
+                "median_price": group_median,
+                "avg_price": round(mean(prices)),
+                "sale_count": len(prices),
+                "ratio_to_suburb_median": round(suburb_median / group_median, 2) if group_median else None,
+            }
+        )
+
+    groups.sort(key=lambda g: (g["type"], g["bedrooms"]))
+    return {"suburb_median": suburb_median, "groups": groups}
 
 
 async def fetch_house_type_breakdown(db: AsyncSession, sa2_code: str) -> List[Dict[str, Any]]:

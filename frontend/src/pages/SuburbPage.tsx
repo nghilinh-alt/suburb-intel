@@ -37,6 +37,21 @@ interface SpecPriceHistory {
   history: PriceHistoryPoint[]
 }
 
+interface TypeBedroomGroup {
+  type: string
+  bedrooms: number
+  label: string
+  median_price: number
+  avg_price: number
+  sale_count: number
+  ratio_to_suburb_median: number | null
+}
+
+interface PriceByTypeBedroom {
+  suburb_median: number | null
+  groups: TypeBedroomGroup[]
+}
+
 interface PropertyMarket {
   building_approvals_1yr: number | null
   recent_sales: RecentSale[]
@@ -45,6 +60,7 @@ interface PropertyMarket {
   price_history_by_spec: SpecPriceHistory[]
   detailed_specs: DetailedSpec[]
   land_size_breakdown: LandSizeBand[]
+  by_type_bedroom: PriceByTypeBedroom
 }
 
 interface RentalSnapshot {
@@ -1200,6 +1216,37 @@ function ReadyView({ data }: { data: SuburbReport }) {
                 formattedValue: `${b.sale_count} sold`,
               }))}
             />
+          </div>
+        )}
+
+        {property_market.by_type_bedroom.groups.length > 0 && (
+          <div style={{ marginTop: '24px' }}>
+            <h4 style={{ fontSize: '14px', fontWeight: 600, color: colors.textPrimary, marginBottom: '4px' }}>
+              Median Price by Type &amp; Bedroom
+            </h4>
+            <p style={{ fontSize: '12px', color: colors.textMuted, marginBottom: '10px' }}>
+              From PropRadar sold listings, grouped by property type and bedroom count. Ratio is the suburb-wide median of all sold listings
+              ({fmtCurrency(property_market.by_type_bedroom.suburb_median)}) divided by each segment median - e.g. 3.0 : 1 means the typical
+              sale is three times this segment.
+            </p>
+            <div style={{ display: 'grid', gap: '2px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 1.8fr) 1fr 1fr 0.7fr 0.9fr', gap: '8px', padding: '4px 12px' }}>
+                {['Segment', 'Median', 'Avg', 'Sold', 'Ratio'].map((h, i) => (
+                  <span key={h} style={{ fontSize: '11px', fontWeight: 600, color: colors.textMuted, textTransform: 'uppercase', textAlign: i === 0 ? 'left' : 'right' }}>
+                    {h}
+                  </span>
+                ))}
+              </div>
+              {property_market.by_type_bedroom.groups.map((g) => (
+                <div key={g.label} style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 1.8fr) 1fr 1fr 0.7fr 0.9fr', gap: '8px', padding: '10px 12px', borderRadius: '8px', backgroundColor: colors.pageBg, alignItems: 'baseline' }}>
+                  <span style={{ fontSize: '14px', color: colors.textPrimary }}>{g.label}</span>
+                  <span style={{ fontSize: '14px', textAlign: 'right', fontFamily: fonts.mono }}>{fmtCurrency(g.median_price)}</span>
+                  <span style={{ fontSize: '14px', textAlign: 'right', fontFamily: fonts.mono, color: colors.textSecondary }}>{fmtCurrency(g.avg_price)}</span>
+                  <span style={{ fontSize: '14px', textAlign: 'right', fontFamily: fonts.mono, color: colors.textSecondary }}>{g.sale_count}</span>
+                  <span style={{ fontSize: '14px', textAlign: 'right', fontFamily: fonts.mono }}>{g.ratio_to_suburb_median != null ? `${g.ratio_to_suburb_median.toFixed(1)} : 1` : '-'}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
